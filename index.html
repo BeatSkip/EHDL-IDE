@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EHDL — ECAD using HDL</title>
+    <style>
+      /* Startup splash — shown before the app bundle loads. */
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #1e1e1e;
+        opacity: 1;
+        transition: opacity 0.35s ease;
+      }
+      #splash.splash-hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #splash .splash-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+      #splash img {
+        width: 180px;
+        border-radius: 12px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+      }
+      #splash .splash-title {
+        color: #e6e6ea;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      #splash .splash-sub {
+        color: #969696;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="splash">
+      <div class="splash-inner">
+        <img src="/EHDL-logo.png" alt="EHDL" />
+        <div class="splash-title">EHDL — ECAD using HDL</div>
+        <div class="splash-sub">starting…</div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
