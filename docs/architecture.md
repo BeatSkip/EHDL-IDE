@@ -64,12 +64,13 @@ placeholder (`buildPartContent` in `libraryFiles.ts`).
 
 ### Create panel
 
-The **Create** activity-bar tab (next to the Library Manager) builds a part
-with a small wizard — type/location, name/description, pins, review — and
-writes it into the chosen category or sub-category folder. The second mode
-imports an existing file (native picker via `open_file_dialog`) by copying it
-into the library. AI part generation is planned and will reuse the API keys
-from Settings → Services.
+**Create** is a dock tab in the same tabset as the Library Manager tab
+(`create-tab` beside `project-tab`), added by App while the library view is
+active so it reads "Library Manager | Create". It builds a part with a small
+wizard — type/location, name/description, pins, review — and writes it into the
+chosen category or sub-category folder. The second mode imports an existing
+file (native picker via `open_file_dialog`) by copying it into the library. AI
+part generation is planned and will reuse the API keys from Settings → Services.
 
 ### Settings modal
 

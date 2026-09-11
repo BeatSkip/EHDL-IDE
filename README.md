@@ -31,8 +31,9 @@ PCB. This repository is the native desktop application: a **Tauri 2** shell
   (comma-separated OR terms) and add/rename/copy/paste/duplicate/delete.
   Categories can hold **sub-category folders** with their own icon, description
   and notes, and per-library details live in `<library_name>.ehdlib.json`.
-- **Create panel** — build a part with a wizard (type, name, pins, review) or
-  import an existing file into a library; AI generation is planned.
+- **Create tab** — a dock tab next to *Library Manager*: build a part with a
+  wizard (type, name, pins, review) or import an existing file into a library;
+  AI generation is planned.
 - **Settings** — General (theme, editor font size, word wrap), Library registry,
   **Keyboard Shortcuts** reference, and **Services** (accounts + API keys).
 

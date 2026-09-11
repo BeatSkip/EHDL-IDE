@@ -39,7 +39,6 @@ import type { AppState, ProjectState } from "./appContext";
 const ACTIVITY_TITLES: Record<ActivityId, string> = {
   explorer: "Project Explorer",
   library: "Library Manager",
-  create: "Create",
   settings: "Settings",
 };
 
@@ -52,7 +51,6 @@ function SidebarPanel() {
   const { project, activeFileId, openFile, openFsPath, activity } = useContext(AppContext);
 
   if (activity === "library") return <LibraryView />;
-  if (activity === "create") return <CreateView />;
 
   if (project.kind === "folder") {
     return (
@@ -136,6 +134,8 @@ const factory = (node: TabNode) => {
   switch (node.getComponent()) {
     case "project":
       return <SidebarPanel />;
+    case "create":
+      return <CreateView />;
     case "editor":
       return <EditorPane fileId={node.getConfig()?.fileId} />;
     case "properties":
@@ -253,6 +253,27 @@ export default function App() {
     }
   }, [activity, model]);
 
+  // The Create tab lives in the same dock tabset as the Library Manager tab, so
+  // it appears right next to it while that view is active — and isn't in the
+  // way while the explorer is showing.
+  useEffect(() => {
+    const hasCreate = !!model.getNodeById("create-tab");
+    if (activity === "library") {
+      if (hasCreate) return; // already there
+      model.doAction(
+        Actions.addTab(
+          { id: "create-tab", type: "tab", component: "create", name: "Create" },
+          "project-tabset",
+          DockLocation.CENTER,
+          -1,
+          false, // don't steal the selection from the Library Manager tab
+        ),
+      );
+      return;
+    }
+    if (hasCreate) model.doAction(Actions.deleteTab("create-tab"));
+  }, [activity, model]);
+
   /** Find the open editor tab for a document id (in any editor group). */
   const findOpenFileTab = (m: Model, fileId: string): TabNode | undefined => {
     let found: TabNode | undefined;
@@ -333,7 +354,9 @@ export default function App() {
   };
 
   /** Activity bar click: the gear toggles the Settings modal, the other
-   *  buttons switch the sidebar view (and close the modal if it is open). */
+   *  buttons switch the sidebar view (and close the modal if it is open).
+   *  The dock tab is brought forward too, since the Create tab shares its
+   *  tabset with the Library Manager tab. */
   const handleActivitySelect = (id: ActivityId) => {
     if (id === "settings") {
       setSettingsOpen((open) => !open);
@@ -341,6 +364,9 @@ export default function App() {
     }
     setSettingsOpen(false);
     setActivity(id);
+    if (model.getNodeById("project-tab")) {
+      model.doAction(Actions.selectTab("project-tab"));
+    }
   };
 
   /** Split the active editor group: active document moves to the new group. */

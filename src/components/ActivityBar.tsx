@@ -1,4 +1,4 @@
-export type ActivityId = "explorer" | "library" | "create" | "settings";
+export type ActivityId = "explorer" | "library" | "settings";
 
 function IconExplorer() {
   return (
@@ -19,16 +19,6 @@ function IconLibrary() {
   );
 }
 
-function IconCreate() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-      <path d="M5 3h8l5 5v6" />
-      <path d="M13 3v5h5" />
-      <path d="M12 14v7M8.5 17.5h7" />
-    </svg>
-  );
-}
-
 function IconSettings() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
@@ -38,7 +28,7 @@ function IconSettings() {
   );
 }
 
-/** VS Code-style activity bar: Explorer + Library + Create at the top, Settings at the bottom. */
+/** VS Code-style activity bar: Explorer + Library at the top, Settings at the bottom. */
 export function ActivityBar({
   active,
   onSelect,
@@ -63,7 +53,6 @@ export function ActivityBar({
       <div className="activity-bar-top">
         {button("explorer", "Project Explorer", <IconExplorer />)}
         {button("library", "Library Manager", <IconLibrary />)}
-        {button("create", "Create part", <IconCreate />)}
       </div>
       <div className="activity-bar-bottom">
         {button("settings", "Settings", <IconSettings />)}
