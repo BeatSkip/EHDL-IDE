@@ -131,83 +131,15 @@ export function subscribeLibraries(listener: LibrariesListener): () => void {
 }
 
 // ---------------------------------------------------------------------------
-// Library contents — the items shown in the Library Manager's four sections
-// (components, symbols, footprints, board snippets). Stored per library id;
-// real folder scanning will later feed the same structure.
+// Library sections — the four content folders every library exposes on disk:
+// components, symbols, footprints and board-snippets. The items inside each
+// section are real subfolders (or files) inside that folder; they are read
+// straight from the file system by the Library Manager, not stored here.
 // ---------------------------------------------------------------------------
 
 export const LIBRARY_SECTIONS = ["components", "symbols", "footprints", "board-snippets"] as const;
 
 export type LibrarySectionId = (typeof LIBRARY_SECTIONS)[number];
-
-export interface LibraryItem {
-  id: string;
-  name: string;
-}
-
-export type LibraryItemMap = Record<LibrarySectionId, LibraryItem[]>;
-
-/** All libraries' contents, keyed by library id. */
-export type LibraryItems = Record<string, LibraryItemMap>;
-
-const LIBRARY_ITEMS_KEY = "ehdl.libraryItems";
-
-/** A fresh, empty section map (every section present). */
-export function emptyLibraryItemMap(): LibraryItemMap {
-  return { components: [], symbols: [], footprints: [], "board-snippets": [] };
-}
-
-function isLibraryItem(value: unknown): value is LibraryItem {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return typeof v.id === "string" && typeof v.name === "string";
-}
-
-function normalizeItemMap(value: unknown): LibraryItemMap {
-  const map = emptyLibraryItemMap();
-  if (typeof value !== "object" || value === null) return map;
-  const source = value as Record<string, unknown>;
-  for (const section of LIBRARY_SECTIONS) {
-    const list = source[section];
-    if (Array.isArray(list)) map[section] = list.filter(isLibraryItem);
-  }
-  return map;
-}
-
-/** Read the stored library contents (tolerant of missing/corrupt storage). */
-export function loadLibraryItems(): LibraryItems {
-  try {
-    const raw = localStorage.getItem(LIBRARY_ITEMS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as unknown;
-      if (typeof parsed === "object" && parsed !== null) {
-        const result: LibraryItems = {};
-        for (const [libraryId, value] of Object.entries(parsed as Record<string, unknown>)) {
-          result[libraryId] = normalizeItemMap(value);
-        }
-        return result;
-      }
-    }
-  } catch {
-    // fall through to empty map
-  }
-  return {};
-}
-
-/** Persist the library contents. */
-export function saveLibraryItems(items: LibraryItems): LibraryItems {
-  try {
-    localStorage.setItem(LIBRARY_ITEMS_KEY, JSON.stringify(items));
-  } catch {
-    // storage unavailable (rare) — changes still apply for this session
-  }
-  return items;
-}
-
-/** The section map of one library (always complete, even when never edited). */
-export function libraryItemMapFor(items: LibraryItems, libraryId: string): LibraryItemMap {
-  return items[libraryId] ?? emptyLibraryItemMap();
-}
 
 // ---------------------------------------------------------------------------
 // Services — accounts and API keys for external services (component

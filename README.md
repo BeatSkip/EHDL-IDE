@@ -1,4 +1,6 @@
 # EHDL-IDE
+Slop-coded experiment to test brain-fart idea. so beware, this is purely 
+chinesium-grade code-slop to see whether i like the idea of designing PCB's using VHDL.
 
 **EHDL — ECAD using HDL.** An open-source electronics CAD IDE built around
 describing a design in **VHDL** and flowing it through to schematic and, later,
@@ -23,9 +25,14 @@ PCB. This repository is the native desktop application: a **Tauri 2** shell
   in a plain browser.
 - **Inline schematic pane** — a build-time-generated tscircuit schematic (the
   tscircuit/WebView2 runtime issue is sidestepped by rendering a static SVG).
-- **Library manager** — register library folders (path + logical name), then
-  organize **components / symbols / footprints / board snippets** per library
-  with search (comma-separated OR terms), copy/paste/duplicate/rename/delete.
+- **Library manager** — register library folders (path + logical name). Each
+  library's **components / symbols / footprints / board snippets** are real
+  subfolders on disk; parts are the plain-text files in them, with search
+  (comma-separated OR terms) and add/rename/copy/paste/duplicate/delete.
+  Categories can hold **sub-category folders** with their own icon, description
+  and notes, and per-library details live in `<library_name>.ehdlib.json`.
+- **Create panel** — build a part with a wizard (type, name, pins, review) or
+  import an existing file into a library; AI generation is planned.
 - **Settings** — General (theme, editor font size, word wrap), Library registry,
   **Keyboard Shortcuts** reference, and **Services** (accounts + API keys).
 

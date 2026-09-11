@@ -1,64 +1,88 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { AppContext } from "../appContext";
+import { loadLibraries, subscribeLibraries, LIBRARY_SECTIONS } from "../settings";
+import type { LibraryEntry, LibrarySectionId } from "../settings";
 import {
-  loadLibraries,
-  subscribeLibraries,
-  loadLibraryItems,
-  saveLibraryItems,
-  libraryItemMapFor,
-  emptyLibraryItemMap,
-} from "../settings";
-import type {
-  LibraryEntry,
-  LibraryItem,
-  LibraryItemMap,
-  LibraryItems,
-  LibrarySectionId,
-} from "../settings";
-import { inTauri, openInFileManager } from "../fs";
+  inTauri,
+  openInFileManager,
+  listDir,
+  createDir,
+  renameEntry,
+  deleteEntry,
+  copyEntry,
+  writeFileText,
+  joinPath,
+} from "../fs";
+import type { FsEntry } from "../fs";
 import { usePopupPosition } from "../popupPosition";
 import type { PopupAnchor } from "../popupPosition";
+import {
+  ITEM_EXT,
+  SECTION_LABELS,
+  DEFAULT_ITEM_NAMES,
+  DEFAULT_SUBCATEGORY_NAME,
+  fileNameOf,
+  splitName,
+  uniqueFileName,
+} from "../libraryFiles";
+import { LIBRARY_ICONS, DEFAULT_ICON_ID, LibraryIconGlyph } from "../libraryIcons";
+import {
+  loadLibraryMeta,
+  saveLibraryMeta,
+  relativeKey,
+  libraryMetaPath,
+  emptyLibraryMeta,
+} from "../libraryMeta";
+import type { LibraryMeta, SubCategoryMeta } from "../libraryMeta";
+import { PanelDialog } from "./PanelDialog";
 
-/** The four content sections every library exposes. */
-const SECTIONS: { id: LibrarySectionId; label: string }[] = [
-  { id: "components", label: "Components" },
-  { id: "symbols", label: "Symbols" },
-  { id: "footprints", label: "Footprints" },
-  { id: "board-snippets", label: "Board Snippets" },
-];
-
-/** Name given to a freshly created item (renamed inline right away). */
-const DEFAULT_ITEM_NAMES: Record<LibrarySectionId, string> = {
-  components: "new_component",
-  symbols: "new_symbol",
-  footprints: "new_footprint",
-  "board-snippets": "new_board_snippet",
-};
+/** The four category folders every library exposes. */
+const SECTIONS: { id: LibrarySectionId; label: string }[] = LIBRARY_SECTIONS.map((id) => ({
+  id,
+  label: SECTION_LABELS[id],
+}));
 
 /**
- * Session clipboard for library items. Kept outside the component so a copied
- * item can be pasted after switching library — or after the panel was closed
- * and reopened from the activity bar.
+ * Session clipboard for parts. Kept outside the component so a copied part can
+ * be pasted after switching library — or after the panel was closed and
+ * reopened from the activity bar. `fromPath` is the folder the part came from,
+ * so a paste works across libraries too.
  */
-let itemClipboard: { name: string; section: LibrarySectionId } | null = null;
+let itemClipboard: { name: string; fromPath: string } | null = null;
 
-/** A name that is free in `existing` (appends _copy, _copy2, … when taken). */
-function uniqueItemName(base: string, existing: LibraryItem[]): string {
-  const taken = new Set(existing.map((item) => item.name.toLowerCase()));
-  if (!taken.has(base.toLowerCase())) return base;
-  let index = 1;
-  let candidate = `${base}_copy`;
-  while (taken.has(candidate.toLowerCase())) {
-    index += 1;
-    candidate = `${base}_copy${index}`;
-  }
-  return candidate;
+/** A loaded section: its absolute folder path plus its direct entries. */
+interface SectionData {
+  path: string;
+  entries: FsEntry[];
+}
+type LibraryData = Record<LibrarySectionId, SectionData>;
+
+/** What a context menu was opened on. */
+type MenuTarget =
+  | { kind: "category"; section: LibrarySectionId; folderPath: string }
+  | { kind: "sub"; section: LibrarySectionId; folderPath: string; parentPath: string; name: string }
+  | { kind: "part"; section: LibrarySectionId; path: string; parentPath: string; name: string };
+
+type ContextMenuState = MenuTarget & { x: number; y: number };
+
+interface Renaming {
+  path: string;
+  parentPath: string;
+  name: string;
+  draft: string;
+  isDir: boolean;
 }
 
-type ContextMenuState =
-  | { kind: "item"; section: LibrarySectionId; id: string; x: number; y: number }
-  | { kind: "section"; section: LibrarySectionId; x: number; y: number };
+type DetailsTarget = { kind: "library" } | { kind: "sub"; path: string; name: string };
+
+interface ConfirmState {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+}
 
 function PlusIcon() {
   return (
@@ -70,48 +94,214 @@ function PlusIcon() {
 
 function FolderIcon() {
   return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      aria-hidden="true"
-    >
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
       <path d="M1.5 4.5h4.2l1.6 2h7.2v7H1.5z" />
+    </svg>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+      <path d="M3.5 2.5h6l3 3v8h-9z" />
+      <path d="M9.5 2.5v3h3" />
     </svg>
   );
 }
 
 function SearchIcon() {
   return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      aria-hidden="true"
-    >
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
       <circle cx="7" cy="7" r="4.2" />
       <path d="M10.2 10.2 14 14" />
     </svg>
   );
 }
 
+function InfoIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.8" />
+      <path d="M8 7.2v4M8 4.9v1" />
+    </svg>
+  );
+}
+
+/** Details of one sub-category: icon, description and notes. */
+function SubDetailsDialog({
+  name,
+  initial,
+  onSave,
+  onClose,
+}: {
+  name: string;
+  initial: SubCategoryMeta;
+  onSave: (patch: SubCategoryMeta) => void;
+  onClose: () => void;
+}) {
+  const [icon, setIcon] = useState(initial.icon ?? DEFAULT_ICON_ID);
+  const [description, setDescription] = useState(initial.description ?? "");
+  const [notes, setNotes] = useState(initial.notes ?? "");
+
+  return (
+    <PanelDialog
+      wide
+      title={`Sub-category “${name}”`}
+      onClose={onClose}
+      actions={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn settings-primary-btn"
+            onClick={() =>
+              onSave({
+                icon,
+                description: description.trim() || undefined,
+                notes: notes.trim() || undefined,
+              })
+            }
+          >
+            Save
+          </button>
+        </>
+      }
+    >
+      <div className="panel-dialog-field">
+        <label>Icon</label>
+        <div className="icon-grid">
+          {LIBRARY_ICONS.map((entry) => (
+            <button
+              key={entry.id}
+              className={`icon-choice ${icon === entry.id ? "active" : ""}`}
+              title={entry.label}
+              aria-label={entry.label}
+              aria-pressed={icon === entry.id}
+              onClick={() => setIcon(entry.id)}
+            >
+              <LibraryIconGlyph id={entry.id} size={18} />
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="panel-dialog-field">
+        <label htmlFor="sub-desc">Description</label>
+        <input
+          id="sub-desc"
+          className="settings-input"
+          type="text"
+          spellCheck={false}
+          placeholder="optional — shown as the row tooltip"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      <div className="panel-dialog-field">
+        <label htmlFor="sub-notes">Notes</label>
+        <textarea
+          id="sub-notes"
+          className="settings-input panel-dialog-textarea"
+          rows={3}
+          spellCheck={false}
+          placeholder="optional"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
+    </PanelDialog>
+  );
+}
+
+/** Details of the library itself. */
+function LibraryDetailsDialog({
+  name,
+  metaFile,
+  initial,
+  onSave,
+  onClose,
+}: {
+  name: string;
+  metaFile: string;
+  initial: LibraryMeta;
+  onSave: (patch: { description: string; notes: string }) => void;
+  onClose: () => void;
+}) {
+  const [description, setDescription] = useState(initial.description ?? "");
+  const [notes, setNotes] = useState(initial.notes ?? "");
+
+  return (
+    <PanelDialog
+      title={`Library “${name}”`}
+      onClose={onClose}
+      actions={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn settings-primary-btn"
+            onClick={() => onSave({ description: description.trim(), notes: notes.trim() })}
+          >
+            Save
+          </button>
+        </>
+      }
+    >
+      <div className="panel-dialog-field">
+        <label htmlFor="lib-desc">Description</label>
+        <input
+          id="lib-desc"
+          className="settings-input"
+          type="text"
+          spellCheck={false}
+          placeholder="optional"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      <div className="panel-dialog-field">
+        <label htmlFor="lib-notes">Notes</label>
+        <textarea
+          id="lib-notes"
+          className="settings-input panel-dialog-textarea"
+          rows={4}
+          spellCheck={false}
+          placeholder="optional — free-form notes about this library"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
+      <p className="panel-dialog-hint">Saved in {metaFile} inside the library folder.</p>
+    </PanelDialog>
+  );
+}
+
 /**
- * Library manager sidebar panel. A dropdown picks one of the libraries
- * configured in Settings → Library; next to it the "+" button creates a new
- * item (component, symbol, footprint or board snippet) and the folder button
- * reveals the library folder in the OS file manager. Below, the library's four
- * sections list their items.
+ * Library manager sidebar panel.
+ *
+ * A library is a folder. Its four categories (components, symbols, footprints,
+ * board-snippets) are subfolders, holding plain-text part files plus optional
+ * **sub-category folders**. Details that are not part of a part file — library
+ * description/notes, and each sub-category's icon/description/notes — live in
+ * `<library_name>.ehdlib.json` in the library's top folder.
  */
 export function LibraryView() {
+  const { openFsPath } = useContext(AppContext);
+
   const [libraries, setLibraries] = useState<LibraryEntry[]>(() => loadLibraries());
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [items, setItems] = useState<LibraryItems>(() => loadLibraryItems());
+
+  const [libraryData, setLibraryData] = useState<LibraryData | null>(null);
+  const [meta, setMeta] = useState<LibraryMeta | null>(null);
+  const [children, setChildren] = useState<Record<string, FsEntry[]>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /** A failed operation (rename, delete, …) — shown as a banner, not instead of the tree. */
+  const [notice, setNotice] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
+
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(SECTIONS.map((section) => [section.id, true])),
   );
@@ -120,19 +310,19 @@ export function LibraryView() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [selectedItem, setSelectedItem] = useState<{
-    section: LibrarySectionId;
-    id: string;
-  } | null>(null);
-  const [renaming, setRenaming] = useState<{
-    section: LibrarySectionId;
-    id: string;
-    draft: string;
-  } | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<Renaming | null>(null);
+  const [detailsFor, setDetailsFor] = useState<DetailsTarget | null>(null);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   const addWrapRef = useRef<HTMLDivElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const lastPathRef = useRef<string | null>(null);
+
+  const selected = libraries.find((lib) => lib.id === selectedId) ?? null;
+  const libPath = selected?.path ?? null;
+  const usable = inTauri && !!libPath && !!libraryData;
 
   // Both menus measure themselves and flip when the sidebar is too narrow.
   const addMenuPos = usePopupPosition(addMenuOpen, addAnchor, addMenuRef);
@@ -141,6 +331,23 @@ export function LibraryView() {
     contextMenu ? { x: contextMenu.x, y: contextMenu.y, align: "left" } : null,
     contextMenuRef,
   );
+
+  // Search terms: comma separated, any of them may match (OR).
+  const terms = query
+    .split(",")
+    .map((term) => term.trim().toLowerCase())
+    .filter(Boolean);
+  const isFiltering = terms.length > 0;
+  const matchesQuery = (name: string) => {
+    const lower = name.toLowerCase();
+    return terms.some((term) => lower.includes(term));
+  };
+
+  /** Sub-category details from the library manifest. */
+  const subMeta = (path: string): SubCategoryMeta | undefined =>
+    libPath && meta ? meta.subCategories[relativeKey(libPath, path)] : undefined;
+
+  const metaFileName = libPath && selected ? fileNameOf(libraryMetaPath(libPath, selected.name)) : "";
 
   // Stay in sync when libraries are added/removed/renamed in the Settings modal.
   useEffect(() => subscribeLibraries(setLibraries), []);
@@ -152,6 +359,12 @@ export function LibraryView() {
       return libraries.length > 0 ? libraries[0].id : null;
     });
   }, [libraries]);
+
+  // While filtering, open every category so the matches are visible.
+  useEffect(() => {
+    if (!isFiltering) return;
+    setOpenSections(Object.fromEntries(SECTIONS.map((section) => [section.id, true])));
+  }, [isFiltering, query]);
 
   // Close the "create new" menu on outside click, Esc, resize or window blur.
   useEffect(() => {
@@ -177,92 +390,7 @@ export function LibraryView() {
     };
   }, [addMenuOpen]);
 
-  const selected = libraries.find((lib) => lib.id === selectedId) ?? null;
-  const sectionItems: LibraryItemMap = selectedId
-    ? libraryItemMapFor(items, selectedId)
-    : emptyLibraryItemMap();
-
-  // Search terms: comma separated, any of them may match (OR).
-  const terms = query
-    .split(",")
-    .map((term) => term.trim().toLowerCase())
-    .filter(Boolean);
-  const isFiltering = terms.length > 0;
-  const matchesQuery = (name: string) => {
-    const lower = name.toLowerCase();
-    return terms.some((term) => lower.includes(term));
-  };
-
-  // While filtering, open every section so the matches are visible.
-  useEffect(() => {
-    if (!isFiltering) return;
-    setOpenSections(Object.fromEntries(SECTIONS.map((section) => [section.id, true])));
-  }, [isFiltering, query]);
-
-  const closeSearch = () => {
-    setSearchOpen(false);
-    setQuery("");
-  };
-
-  const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== "Escape") return;
-    e.stopPropagation();
-    if (query) setQuery("");
-    else closeSearch();
-  };
-
-  const selectLibrary = (id: string) => {
-    setSelectedId(id);
-    setSelectedItem(null);
-    setRenaming(null);
-    setAddMenuOpen(false);
-    setContextMenu(null);
-    setQuery("");
-  };
-
-  /** Replace one section's list of the selected library. */
-  const writeSection = (section: LibrarySectionId, next: LibraryItem[]) => {
-    if (!selectedId) return;
-    const map = libraryItemMapFor(items, selectedId);
-    setItems(saveLibraryItems({ ...items, [selectedId]: { ...map, [section]: next } }));
-  };
-
-  /** Create an item in the chosen section and start renaming it. */
-  const addItem = (section: LibrarySectionId) => {
-    if (!selectedId) return;
-    const item: LibraryItem = { id: crypto.randomUUID(), name: DEFAULT_ITEM_NAMES[section] };
-    writeSection(section, [...sectionItems[section], item]);
-    setOpenSections((current) => ({ ...current, [section]: true }));
-    setAddMenuOpen(false);
-    setRenaming({ section, id: item.id, draft: item.name });
-  };
-
-  const startRename = (section: LibrarySectionId, item: LibraryItem) =>
-    setRenaming({ section, id: item.id, draft: item.name });
-
-  const commitRename = () => {
-    if (!renaming) return;
-    const { section, id, draft } = renaming;
-    setRenaming(null);
-    const name = draft.trim();
-    if (!name) return; // empty name keeps the previous one
-    writeSection(
-      section,
-      sectionItems[section].map((item) => (item.id === id ? { ...item, name } : item)),
-    );
-  };
-
-  const onRenameKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commitRename();
-    } else if (e.key === "Escape") {
-      e.stopPropagation();
-      setRenaming(null);
-    }
-  };
-
-  // Close the item context menu on outside click, Esc, resize or window blur.
+  // Close the context menu on outside click, Esc, resize or window blur.
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
@@ -284,6 +412,216 @@ export function LibraryView() {
     };
   }, [contextMenu]);
 
+  // Load the selected library: its manifest, its category folders (creating any
+  // that are missing) and each category's entries.
+  useEffect(() => {
+    const path = selected?.path ?? null;
+    const name = selected?.name ?? "";
+    if (lastPathRef.current !== path) {
+      lastPathRef.current = path;
+      setLibraryData(null);
+      setMeta(null);
+      setChildren({});
+      setExpanded({});
+      setSelectedPath(null);
+      setRenaming(null);
+    }
+    if (!path || !inTauri) {
+      setLibraryData(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        const loadedMeta = await loadLibraryMeta(path, name);
+        if (!cancelled) setMeta(loadedMeta);
+        const root = await listDir(path);
+        const map = {} as LibraryData;
+        for (const section of SECTIONS) {
+          const existing = root.find((entry) => entry.isDir && entry.name === section.id);
+          const sectionPath = existing?.path ?? joinPath(path, section.id);
+          if (!existing) await createDir(sectionPath); // auto-create the category folder
+          map[section.id] = { path: sectionPath, entries: await listDir(sectionPath) };
+        }
+        if (!cancelled) setLibraryData(map);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.path, selected?.name, inTauri, refresh]);
+
+  // Load the contents of expanded sub-categories that aren't cached yet.
+  useEffect(() => {
+    if (!inTauri) return;
+    for (const path of Object.keys(expanded)) {
+      if (expanded[path] && !(path in children)) void loadChildren(path);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, children, inTauri]);
+
+  // While searching, load the whole tree (bounded) so matches inside
+  // sub-categories can be found.
+  useEffect(() => {
+    if (!isFiltering || !libraryData || !inTauri) return;
+    let cancelled = false;
+    const walk = async (path: string, depth: number): Promise<void> => {
+      if (depth > 4) return;
+      let entries: FsEntry[];
+      try {
+        entries = await listDir(path);
+      } catch {
+        return;
+      }
+      if (cancelled) return;
+      setChildren((current) => ({ ...current, [path]: entries }));
+      for (const entry of entries) {
+        if (entry.isDir) await walk(entry.path, depth + 1);
+      }
+    };
+    void (async () => {
+      for (const section of SECTIONS) await walk(libraryData[section.id].path, 0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isFiltering, libraryData]);
+
+  const loadChildren = async (path: string) => {
+    try {
+      const entries = await listDir(path);
+      setChildren((current) => ({ ...current, [path]: entries }));
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const sectionEntries = (section: LibrarySectionId): FsEntry[] =>
+    libraryData?.[section]?.entries ?? [];
+
+  /** Direct entries of a folder: the category root or a loaded sub-category. */
+  const entriesFor = (section: LibrarySectionId, folderPath: string): FsEntry[] =>
+    libraryData && folderPath === libraryData[section].path
+      ? libraryData[section].entries
+      : (children[folderPath] ?? []);
+
+  const invalidate = (path: string) =>
+    setChildren((current) => {
+      if (!(path in current)) return current;
+      const next = { ...current };
+      delete next[path];
+      return next;
+    });
+
+  const forget = (path: string) => {
+    invalidate(path);
+    setExpanded((current) => {
+      if (!(path in current)) return current;
+      const next = { ...current };
+      delete next[path];
+      return next;
+    });
+  };
+
+  const persistMeta = async (next: LibraryMeta) => {
+    setMeta(next);
+    if (!libPath || !selected) return;
+    try {
+      await saveLibraryMeta(libPath, selected.name, next);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const saveSubDetails = (path: string, patch: SubCategoryMeta) => {
+    if (!libPath || !meta) return;
+    const key = relativeKey(libPath, path);
+    void persistMeta({
+      ...meta,
+      subCategories: { ...meta.subCategories, [key]: { ...meta.subCategories[key], ...patch } },
+    });
+    setDetailsFor(null);
+  };
+
+  const saveLibraryDetails = (patch: { description: string; notes: string }) => {
+    if (!meta) return;
+    void persistMeta({
+      ...meta,
+      description: patch.description || undefined,
+      notes: patch.notes || undefined,
+    });
+    setDetailsFor(null);
+  };
+
+  /** Move a sub-category's manifest entry when its folder is renamed. */
+  const rekeyMeta = (oldKey: string, newKey: string) => {
+    if (!meta) return;
+    const subCategories: Record<string, SubCategoryMeta> = {};
+    let changed = false;
+    for (const [key, value] of Object.entries(meta.subCategories)) {
+      if (key === oldKey || key.startsWith(`${oldKey}/`)) {
+        subCategories[`${newKey}${key.slice(oldKey.length)}`] = value;
+        changed = true;
+      } else {
+        subCategories[key] = value;
+      }
+    }
+    if (changed) void persistMeta({ ...meta, subCategories });
+  };
+
+  const removeMetaEntry = (path: string) => {
+    if (!libPath || !meta) return;
+    const key = relativeKey(libPath, path);
+    if (!(key in meta.subCategories)) return;
+    const subCategories = { ...meta.subCategories };
+    delete subCategories[key];
+    void persistMeta({ ...meta, subCategories });
+  };
+
+  /** Count every part file inside a folder (recursively, bounded). */
+  const countParts = async (path: string, depth = 0): Promise<number> => {
+    if (depth > 5) return 0;
+    let entries: FsEntry[];
+    try {
+      entries = await listDir(path);
+    } catch {
+      return 0;
+    }
+    let total = 0;
+    for (const entry of entries) {
+      total += entry.isDir ? await countParts(entry.path, depth + 1) : 1;
+    }
+    return total;
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+  };
+
+  const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Escape") return;
+    e.stopPropagation();
+    if (query) setQuery("");
+    else closeSearch();
+  };
+
+  const selectLibrary = (id: string) => {
+    setSelectedId(id);
+    setSelectedPath(null);
+    setRenaming(null);
+    setAddMenuOpen(false);
+    setContextMenu(null);
+    setQuery("");
+  };
+
   /** Toggle the "create new" menu, anchored to the + button. */
   const toggleAddMenu = () => {
     if (addMenuOpen) {
@@ -295,81 +633,295 @@ export function LibraryView() {
     setAddMenuOpen(true);
   };
 
-  /** Right-click on an item: select it and open its action menu. */
-  const openContextMenu = (e: ReactMouseEvent, section: LibrarySectionId, id: string) => {
+  const openContextMenu = (e: ReactMouseEvent, target: MenuTarget) => {
     e.preventDefault();
-    e.stopPropagation(); // don't also open the section menu
+    e.stopPropagation(); // don't also open the parent's menu
     setAddMenuOpen(false);
-    setSelectedItem({ section, id });
-    setContextMenu({ kind: "item", section, id, x: e.clientX, y: e.clientY });
+    if (target.kind === "part") setSelectedPath(target.path);
+    setContextMenu({ ...target, x: e.clientX, y: e.clientY });
   };
 
-  /** Right-click on a section (header, empty area): paste into that section. */
-  const openSectionContextMenu = (e: ReactMouseEvent, section: LibrarySectionId) => {
+  /** Right-click on a category header / its empty area. */
+  const openCategoryMenu = (e: ReactMouseEvent, section: LibrarySectionId) => {
     if ((e.target as HTMLElement).tagName === "INPUT") return; // renaming: native menu
-    e.preventDefault();
-    setAddMenuOpen(false);
-    setContextMenu({ kind: "section", section, x: e.clientX, y: e.clientY });
+    const folderPath = libraryData?.[section]?.path;
+    if (!folderPath) return;
+    openContextMenu(e, { kind: "category", section, folderPath });
   };
 
-  /** Copy an item onto the session clipboard (paste works across libraries). */
-  const copyItem = (section: LibrarySectionId, id: string) => {
-    const item = sectionItems[section].find((entry) => entry.id === id);
-    if (!item) return;
-    itemClipboard = { name: item.name, section };
+  /** Create a new part file in a folder and start renaming it. */
+  const addPart = async (section: LibrarySectionId, folderPath: string) => {
+    const name = uniqueFileName(DEFAULT_ITEM_NAMES[section], ITEM_EXT, entriesFor(section, folderPath));
+    try {
+      const path = joinPath(folderPath, name);
+      await writeFileText(path, "");
+      invalidate(folderPath);
+      setRefresh((r) => r + 1);
+      setExpanded((current) => ({ ...current, [folderPath]: true }));
+      setRenaming({ path, parentPath: folderPath, name, draft: name, isDir: false });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** Create a new sub-category folder inside a category and start renaming it. */
+  const addSubCategory = async (section: LibrarySectionId, folderPath: string) => {
+    const name = uniqueFileName(DEFAULT_SUBCATEGORY_NAME, "", entriesFor(section, folderPath));
+    try {
+      const path = joinPath(folderPath, name);
+      await createDir(path);
+      invalidate(folderPath);
+      setRefresh((r) => r + 1);
+      setRenaming({ path, parentPath: folderPath, name, draft: name, isDir: true });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const startRename = (parentPath: string, path: string, name: string, isDir: boolean) =>
+    setRenaming({ path, parentPath, name, draft: name, isDir });
+
+  const commitRename = async () => {
+    if (!renaming) return;
+    const { path, parentPath, name, draft, isDir } = renaming;
+    const newName = draft.trim();
+    setRenaming(null);
+    if (!newName || newName === name) return;
+    const newPath = joinPath(parentPath, newName);
+    try {
+      await renameEntry(path, newPath);
+      if (isDir && libPath) rekeyMeta(relativeKey(libPath, path), relativeKey(libPath, newPath));
+      forget(path);
+      invalidate(parentPath);
+      setRefresh((r) => r + 1);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onRenameKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void commitRename();
+    } else if (e.key === "Escape") {
+      e.stopPropagation();
+      setRenaming(null);
+    }
+  };
+
+  const copyPart = (name: string, fromPath: string) => {
+    itemClipboard = { name, fromPath };
     setContextMenu(null);
   };
 
-  /** Paste the clipboard item into a section (name is made unique). */
-  const pasteItem = (section: LibrarySectionId, afterId?: string) => {
-    if (!itemClipboard || !selectedId) return;
-    const list = sectionItems[section];
-    const pasted: LibraryItem = {
-      id: crypto.randomUUID(),
-      name: uniqueItemName(itemClipboard.name, list),
-    };
-    const index = afterId ? list.findIndex((item) => item.id === afterId) : -1;
-    writeSection(
-      section,
-      index >= 0
-        ? [...list.slice(0, index + 1), pasted, ...list.slice(index + 1)]
-        : [...list, pasted],
-    );
+  const pasteInto = async (section: LibrarySectionId, folderPath: string) => {
+    if (!itemClipboard) return;
+    const { base, ext } = splitName(itemClipboard.name);
+    const name = uniqueFileName(base, ext, entriesFor(section, folderPath));
+    try {
+      await copyEntry(joinPath(itemClipboard.fromPath, itemClipboard.name), joinPath(folderPath, name));
+      invalidate(folderPath);
+      setRefresh((r) => r + 1);
+      setExpanded((current) => ({ ...current, [folderPath]: true }));
+      setRenaming({ path: joinPath(folderPath, name), parentPath: folderPath, name, draft: name, isDir: false });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
     setContextMenu(null);
-    setOpenSections((current) => ({ ...current, [section]: true }));
-    setRenaming({ section, id: pasted.id, draft: pasted.name });
   };
 
-  /** Duplicate an item in place: the copy lands right below it. */
-  const duplicateItem = (section: LibrarySectionId, id: string) => {
-    const list = sectionItems[section];
-    const index = list.findIndex((item) => item.id === id);
-    if (index < 0) return;
-    const copy: LibraryItem = {
-      id: crypto.randomUUID(),
-      name: uniqueItemName(list[index].name, list),
-    };
-    writeSection(section, [...list.slice(0, index + 1), copy, ...list.slice(index + 1)]);
+  const duplicatePart = async (section: LibrarySectionId, parentPath: string, name: string) => {
+    const { base, ext } = splitName(name);
+    const newName = uniqueFileName(base, ext, entriesFor(section, parentPath));
+    try {
+      await copyEntry(joinPath(parentPath, name), joinPath(parentPath, newName));
+      invalidate(parentPath);
+      setRefresh((r) => r + 1);
+      setExpanded((current) => ({ ...current, [parentPath]: true }));
+      setRenaming({ path: joinPath(parentPath, newName), parentPath, name: newName, draft: newName, isDir: false });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
     setContextMenu(null);
-    setOpenSections((current) => ({ ...current, [section]: true }));
-    setRenaming({ section, id: copy.id, draft: copy.name });
   };
 
-  /** Delete an item from its section. */
-  const deleteItem = (section: LibrarySectionId, id: string) => {
-    writeSection(section, sectionItems[section].filter((item) => item.id !== id));
-    setRenaming((current) => (current && current.id === id ? null : current));
-    setSelectedItem((current) => (current && current.id === id ? null : current));
+  const performDelete = async (path: string, parentPath: string) => {
+    try {
+      await deleteEntry(path);
+      forget(path);
+      removeMetaEntry(path);
+      invalidate(parentPath);
+      setRefresh((r) => r + 1);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+    setSelectedPath((current) => (current === path ? null : current));
     setContextMenu(null);
+  };
+
+  /** Deleting a sub-category warns first when it still holds parts. */
+  const requestDeleteSub = async (
+    folderPath: string,
+    parentPath: string,
+    name: string,
+  ) => {
+    setContextMenu(null);
+    const parts = await countParts(folderPath);
+    if (parts > 0) {
+      setConfirmState({
+        title: `Delete “${name}”?`,
+        message: `This sub-category holds ${parts} part${parts === 1 ? "" : "s"}. Deleting it removes the folder and everything inside it.`,
+        confirmLabel: "Delete",
+        onConfirm: () => {
+          setConfirmState(null);
+          void performDelete(folderPath, parentPath);
+        },
+      });
+    } else {
+      void performDelete(folderPath, parentPath);
+    }
   };
 
   const openLibraryFolder = async () => {
-    if (!selected?.path) return;
+    if (!libPath) return;
     try {
-      await openInFileManager(selected.path);
-    } catch (error) {
-      console.error("Failed to open library folder:", error);
+      await openInFileManager(libPath);
+    } catch (err) {
+      console.error("Failed to open library folder:", err);
     }
+  };
+
+  const entryMatches = (entry: FsEntry): boolean => {
+    if (matchesQuery(entry.name)) return true;
+    if (!entry.isDir) return false;
+    const kids = children[entry.path];
+    if (!kids) return false;
+    return kids.some((kid) => entryMatches(kid));
+  };
+
+  const renderPart = (
+    section: LibrarySectionId,
+    parentPath: string,
+    entry: FsEntry,
+  ): ReactNode => {
+    if (isFiltering && !matchesQuery(entry.name)) return null;
+    if (renaming?.path === entry.path) {
+      return (
+        <div className="library-item" key={entry.path}>
+          <input
+            className="settings-input library-item-input"
+            type="text"
+            autoFocus
+            spellCheck={false}
+            aria-label="Rename part"
+            value={renaming.draft}
+            onChange={(e) => setRenaming((cur) => (cur ? { ...cur, draft: e.target.value } : cur))}
+            onKeyDown={onRenameKey}
+            onBlur={() => void commitRename()}
+          />
+        </div>
+      );
+    }
+    return (
+      <div
+        className={`library-item ${selectedPath === entry.path ? "selected" : ""}`}
+        key={entry.path}
+        title={`${entry.name} — double-click to open, right-click for options`}
+        onClick={() => setSelectedPath(entry.path)}
+        onDoubleClick={() => void openFsPath(entry.path)}
+        onContextMenu={(e) =>
+          openContextMenu(e, {
+            kind: "part",
+            section,
+            path: entry.path,
+            parentPath,
+            name: entry.name,
+          })
+        }
+      >
+        <span className="library-item-icon">
+          <FileIcon />
+        </span>
+        <span className="library-item-name">{entry.name}</span>
+      </div>
+    );
+  };
+
+  const renderFolder = (
+    section: LibrarySectionId,
+    parentPath: string,
+    entry: FsEntry,
+    forceOpen: boolean,
+  ): ReactNode => {
+    if (isFiltering && !entryMatches(entry)) return null;
+    const details = subMeta(entry.path);
+
+    if (renaming?.path === entry.path) {
+      return (
+        <div className="library-subcat" key={entry.path}>
+          <div className="library-subcat-head">
+            <input
+              className="settings-input library-item-input"
+              type="text"
+              autoFocus
+              spellCheck={false}
+              aria-label="Rename sub-category"
+              value={renaming.draft}
+              onChange={(e) => setRenaming((cur) => (cur ? { ...cur, draft: e.target.value } : cur))}
+              onKeyDown={onRenameKey}
+              onBlur={() => void commitRename()}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    const open = forceOpen || !!expanded[entry.path];
+    const kids = children[entry.path];
+    return (
+      <div className="library-subcat" key={entry.path}>
+        <div
+          className="library-subcat-head"
+          title={
+            details?.description
+              ? `${entry.name} — ${details.description}`
+              : `${entry.name} — click to expand, right-click for options`
+          }
+          onClick={() => setExpanded((current) => ({ ...current, [entry.path]: !current[entry.path] }))}
+          onContextMenu={(e) =>
+            openContextMenu(e, {
+              kind: "sub",
+              section,
+              folderPath: entry.path,
+              parentPath,
+              name: entry.name,
+            })
+          }
+        >
+          <span className={`library-subcat-caret ${open ? "open" : ""}`} aria-hidden="true">
+            ▸
+          </span>
+          <span className="library-item-icon">
+            <LibraryIconGlyph id={details?.icon ?? DEFAULT_ICON_ID} />
+          </span>
+          <span className="library-item-name">{entry.name}</span>
+          {kids && <span className="library-subcat-count">{kids.length}</span>}
+        </div>
+        {open && (
+          <div className="library-subcat-body">
+            {kids ? (
+              kids.map((kid) =>
+                kid.isDir
+                  ? renderFolder(section, entry.path, kid, forceOpen)
+                  : renderPart(section, entry.path, kid),
+              )
+            ) : (
+              <div className="library-subcat-loading">Loading…</div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -399,11 +951,11 @@ export function LibraryView() {
               <div className="library-add-wrap" ref={addWrapRef}>
                 <button
                   className="library-icon-btn"
-                  title="Add new…"
-                  aria-label="Add new"
+                  title="Create a new part…"
+                  aria-label="Create a new part"
                   aria-haspopup="menu"
                   aria-expanded={addMenuOpen}
-                  disabled={!selectedId}
+                  disabled={!usable}
                   onClick={toggleAddMenu}
                 >
                   <PlusIcon />
@@ -415,12 +967,12 @@ export function LibraryView() {
                 title={
                   !inTauri
                     ? "Opening folders is only available in the desktop app"
-                    : selected?.path
-                      ? `Open ${selected.path} in Explorer`
+                    : libPath
+                      ? `Open ${libPath} in Explorer`
                       : "This library has no folder set"
                 }
                 aria-label="Open library folder"
-                disabled={!selected?.path || !inTauri}
+                disabled={!libPath || !inTauri}
                 onClick={() => void openLibraryFolder()}
               >
                 <FolderIcon />
@@ -431,10 +983,20 @@ export function LibraryView() {
                 title={searchOpen ? "Hide the search bar" : "Search this library"}
                 aria-label="Search library"
                 aria-pressed={searchOpen}
-                disabled={!selectedId}
+                disabled={!usable}
                 onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
               >
                 <SearchIcon />
+              </button>
+
+              <button
+                className="library-icon-btn"
+                title="Library details — description and notes"
+                aria-label="Library details"
+                disabled={!usable}
+                onClick={() => setDetailsFor({ kind: "library" })}
+              >
+                <InfoIcon />
               </button>
             </div>
 
@@ -446,7 +1008,7 @@ export function LibraryView() {
                   autoFocus
                   spellCheck={false}
                   placeholder="Search — commas separate terms (OR)"
-                  title="Matches items containing any of the comma-separated terms"
+                  title="Matches parts and sub-categories containing any of the comma-separated terms"
                   aria-label="Search library"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -460,95 +1022,96 @@ export function LibraryView() {
                   onClick={() => setQuery("")}
                 >
                   <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-                    <path
-                      d="M4 4l8 8M12 4l-8 8"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      fill="none"
-                    />
+                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" fill="none" />
                   </svg>
                 </button>
               </div>
             )}
 
-            <div className="library-sections">
-              {SECTIONS.map((section) => {
-                const list = sectionItems[section.id];
-                const visible = isFiltering ? list.filter((item) => matchesQuery(item.name)) : list;
-                const open = openSections[section.id];
-                const badge = isFiltering ? `${visible.length}/${list.length}` : `${list.length}`;
-                return (
-                  <section
-                    className="library-section"
-                    key={section.id}
-                    onContextMenu={(e) => openSectionContextMenu(e, section.id)}
-                  >
-                    <button
-                      className="library-section-head"
-                      aria-expanded={open}
-                      title={open ? `Collapse ${section.label}` : `Expand ${section.label}`}
-                      onClick={() => setOpenSections((cur) => ({ ...cur, [section.id]: !cur[section.id] }))}
-                    >
-                      <span
-                        className={`library-section-caret ${open ? "open" : ""}`}
-                        aria-hidden="true"
-                      >
-                        ▸
-                      </span>
-                      <span className="library-section-title">{section.label}</span>
-                      <span className="library-section-count">{badge}</span>
-                    </button>
+            {notice && (
+              <div className="library-notice" role="alert">
+                <span className="library-notice-text">{notice}</span>
+                <button
+                  className="library-icon-btn"
+                  title="Dismiss"
+                  aria-label="Dismiss"
+                  onClick={() => setNotice(null)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" fill="none" />
+                  </svg>
+                </button>
+              </div>
+            )}
 
-                    {open &&
-                      (visible.length === 0 ? (
-                        <div className="library-section-empty">
-                          {list.length === 0
-                            ? `No ${section.label.toLowerCase()} yet.`
-                            : "No matches."}
-                        </div>
-                      ) : (
-                        <ul className="library-section-items">
-                          {visible.map((item) => {
-                            const isSelected =
-                              selectedItem?.section === section.id && selectedItem.id === item.id;
-                            return renaming && renaming.id === item.id ? (
-                              <li
-                                className={`library-item ${isSelected ? "selected" : ""}`}
-                                key={item.id}
-                              >
-                                <input
-                                  className="settings-input library-item-input"
-                                  type="text"
-                                  autoFocus
-                                  aria-label={`Rename ${section.label.slice(0, -1).toLowerCase()}`}
-                                  value={renaming.draft}
-                                  onChange={(e) =>
-                                    setRenaming((cur) =>
-                                      cur ? { ...cur, draft: e.target.value } : cur,
-                                    )
-                                  }
-                                  onKeyDown={onRenameKey}
-                                  onBlur={commitRename}
-                                />
-                              </li>
-                            ) : (
-                              <li
-                                className={`library-item ${isSelected ? "selected" : ""}`}
-                                key={item.id}
-                                title={`${item.name} — right-click for options`}
-                                onClick={() => setSelectedItem({ section: section.id, id: item.id })}
-                                onContextMenu={(e) => openContextMenu(e, section.id, item.id)}
-                              >
-                                {item.name}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      ))}
-                  </section>
-                );
-              })}
-            </div>
+            {!inTauri ? (
+              <p className="hint">
+                Library browsing requires the desktop app — run <code>npm run tauri dev</code>.
+              </p>
+            ) : loading ? (
+              <p className="hint">Loading library…</p>
+            ) : error ? (
+              <p className="hint">{error}</p>
+            ) : libraryData ? (
+              <div className="library-sections">
+                {SECTIONS.map((section) => {
+                  const data = libraryData[section.id];
+                  const entries = sectionEntries(section.id);
+                  const visibleCount = isFiltering
+                    ? entries.filter((entry) =>
+                        entry.isDir ? entryMatches(entry) : matchesQuery(entry.name),
+                      ).length
+                    : entries.length;
+                  const open = openSections[section.id] || isFiltering;
+                  const badge = isFiltering ? `${visibleCount}/${entries.length}` : `${entries.length}`;
+                  return (
+                    <section
+                      className="library-section"
+                      key={section.id}
+                      onContextMenu={(e) => openCategoryMenu(e, section.id)}
+                    >
+                      <button
+                        className="library-section-head"
+                        aria-expanded={open}
+                        title={open ? `Collapse ${section.label}` : `Expand ${section.label}`}
+                        onClick={() =>
+                          setOpenSections((current) => ({
+                            ...current,
+                            [section.id]: !current[section.id],
+                          }))
+                        }
+                      >
+                        <span
+                          className={`library-section-caret ${open ? "open" : ""}`}
+                          aria-hidden="true"
+                        >
+                          ▸
+                        </span>
+                        <span className="library-section-title">{section.label}</span>
+                        <span className="library-section-count">{badge}</span>
+                      </button>
+
+                      {open &&
+                        (entries.length === 0 ? (
+                          <div className="library-section-empty">
+                            No {section.label.toLowerCase()} yet.
+                          </div>
+                        ) : visibleCount === 0 ? (
+                          <div className="library-section-empty">No matches.</div>
+                        ) : (
+                          <div className="library-section-items">
+                            {entries.map((entry) =>
+                              entry.isDir
+                                ? renderFolder(section.id, data.path, entry, isFiltering)
+                                : renderPart(section.id, data.path, entry),
+                            )}
+                          </div>
+                        ))}
+                    </section>
+                  );
+                })}
+              </div>
+            ) : null}
           </>
         )}
       </div>
@@ -568,13 +1131,17 @@ export function LibraryView() {
               visibility: addMenuPos ? "visible" : "hidden",
             }}
           >
-            <div className="library-menu-title">Create new</div>
+            <div className="library-menu-title">Create new part in</div>
             {SECTIONS.map((section) => (
               <button
                 key={section.id}
                 className="library-menu-item"
                 role="menuitem"
-                onClick={() => addItem(section.id)}
+                onClick={() => {
+                  const folderPath = libraryData?.[section.id]?.path;
+                  setAddMenuOpen(false);
+                  if (folderPath) void addPart(section.id, folderPath);
+                }}
               >
                 {section.label}
               </button>
@@ -590,7 +1157,13 @@ export function LibraryView() {
           <div
             className="library-menu library-context-menu"
             role="menu"
-            aria-label={contextMenu.kind === "item" ? "Item actions" : "Section actions"}
+            aria-label={
+              contextMenu.kind === "category"
+                ? "Category actions"
+                : contextMenu.kind === "sub"
+                  ? "Sub-category actions"
+                  : "Part actions"
+            }
             ref={contextMenuRef}
             style={{
               left: contextMenuPos?.left ?? contextMenu.x,
@@ -598,17 +1171,77 @@ export function LibraryView() {
               visibility: contextMenuPos ? "visible" : "hidden",
             }}
           >
-            {contextMenu.kind === "item" ? (
+            {contextMenu.kind === "category" && (
               <>
                 <button
                   className="library-menu-item"
                   role="menuitem"
                   autoFocus
                   onClick={() => {
-                    const { section, id } = contextMenu;
-                    const item = sectionItems[section].find((entry) => entry.id === id);
+                    const { section, folderPath } = contextMenu;
                     setContextMenu(null);
-                    if (item) startRename(section, item);
+                    void addPart(section, folderPath);
+                  }}
+                >
+                  New part
+                </button>
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    const { section, folderPath } = contextMenu;
+                    setContextMenu(null);
+                    void addSubCategory(section, folderPath);
+                  }}
+                >
+                  New sub-category
+                </button>
+                <div className="library-menu-sep" role="separator" />
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  disabled={!itemClipboard}
+                  title={itemClipboard ? `Paste “${itemClipboard.name}”` : "Nothing copied yet"}
+                  onClick={() => void pasteInto(contextMenu.section, contextMenu.folderPath)}
+                >
+                  Paste
+                </button>
+              </>
+            )}
+
+            {contextMenu.kind === "sub" && (
+              <>
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  autoFocus
+                  onClick={() => {
+                    const { section, folderPath } = contextMenu;
+                    setContextMenu(null);
+                    void addPart(section, folderPath);
+                  }}
+                >
+                  New part
+                </button>
+                <div className="library-menu-sep" role="separator" />
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    const { folderPath, name } = contextMenu;
+                    setContextMenu(null);
+                    setDetailsFor({ kind: "sub", path: folderPath, name });
+                  }}
+                >
+                  Icon & details…
+                </button>
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    const { folderPath, parentPath, name } = contextMenu;
+                    setContextMenu(null);
+                    startRename(parentPath, folderPath, name, true);
                   }}
                 >
                   Rename
@@ -617,7 +1250,57 @@ export function LibraryView() {
                 <button
                   className="library-menu-item"
                   role="menuitem"
-                  onClick={() => copyItem(contextMenu.section, contextMenu.id)}
+                  disabled={!itemClipboard}
+                  title={itemClipboard ? `Paste “${itemClipboard.name}”` : "Nothing copied yet"}
+                  onClick={() => void pasteInto(contextMenu.section, contextMenu.folderPath)}
+                >
+                  Paste
+                </button>
+                <div className="library-menu-sep" role="separator" />
+                <button
+                  className="library-menu-item danger"
+                  role="menuitem"
+                  onClick={() => {
+                    const { folderPath, parentPath, name } = contextMenu;
+                    void requestDeleteSub(folderPath, parentPath, name);
+                  }}
+                >
+                  Delete
+                </button>
+              </>
+            )}
+
+            {contextMenu.kind === "part" && (
+              <>
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  autoFocus
+                  onClick={() => {
+                    const { path } = contextMenu;
+                    setContextMenu(null);
+                    void openFsPath(path);
+                  }}
+                >
+                  Open
+                </button>
+                <div className="library-menu-sep" role="separator" />
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    const { parentPath, path, name } = contextMenu;
+                    setContextMenu(null);
+                    startRename(parentPath, path, name, false);
+                  }}
+                >
+                  Rename
+                </button>
+                <div className="library-menu-sep" role="separator" />
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  onClick={() => copyPart(contextMenu.name, contextMenu.parentPath)}
                 >
                   Copy
                 </button>
@@ -626,14 +1309,16 @@ export function LibraryView() {
                   role="menuitem"
                   disabled={!itemClipboard}
                   title={itemClipboard ? `Paste “${itemClipboard.name}”` : "Nothing copied yet"}
-                  onClick={() => pasteItem(contextMenu.section, contextMenu.id)}
+                  onClick={() => void pasteInto(contextMenu.section, contextMenu.parentPath)}
                 >
                   Paste
                 </button>
                 <button
                   className="library-menu-item"
                   role="menuitem"
-                  onClick={() => duplicateItem(contextMenu.section, contextMenu.id)}
+                  onClick={() =>
+                    void duplicatePart(contextMenu.section, contextMenu.parentPath, contextMenu.name)
+                  }
                 >
                   Duplicate
                 </button>
@@ -641,26 +1326,60 @@ export function LibraryView() {
                 <button
                   className="library-menu-item danger"
                   role="menuitem"
-                  onClick={() => deleteItem(contextMenu.section, contextMenu.id)}
+                  onClick={() => void performDelete(contextMenu.path, contextMenu.parentPath)}
                 >
                   Delete
                 </button>
               </>
-            ) : (
-              <button
-                className="library-menu-item"
-                role="menuitem"
-                autoFocus
-                disabled={!itemClipboard}
-                title={itemClipboard ? `Paste “${itemClipboard.name}”` : "Nothing copied yet"}
-                onClick={() => pasteItem(contextMenu.section)}
-              >
-                Paste
-              </button>
             )}
           </div>,
           document.body,
         )}
+
+      {/* Sub-category / library details (stored in <library_name>.ehdlib.json) */}
+      {detailsFor?.kind === "sub" &&
+        libPath &&
+        meta && (
+          <SubDetailsDialog
+            name={detailsFor.name}
+            initial={subMeta(detailsFor.path) ?? {}}
+            onSave={(patch) => saveSubDetails(detailsFor.path, patch)}
+            onClose={() => setDetailsFor(null)}
+          />
+        )}
+
+      {detailsFor?.kind === "library" && selected && (
+        <LibraryDetailsDialog
+          name={selected.name || "(unnamed)"}
+          metaFile={metaFileName}
+          initial={meta ?? emptyLibraryMeta(selected.name)}
+          onSave={saveLibraryDetails}
+          onClose={() => setDetailsFor(null)}
+        />
+      )}
+
+      {/* Confirmation before deleting a sub-category that holds parts */}
+      {confirmState && (
+        <PanelDialog
+          title={confirmState.title}
+          onClose={() => setConfirmState(null)}
+          actions={
+            <>
+              <button className="btn" onClick={() => setConfirmState(null)}>
+                Cancel
+              </button>
+              <button className="btn btn-danger" onClick={confirmState.onConfirm}>
+                {confirmState.confirmLabel}
+              </button>
+            </>
+          }
+        >
+          <p className="panel-dialog-text">{confirmState.message}</p>
+          <p className="panel-dialog-text panel-dialog-muted">
+            Part files inside the folder are deleted with it; this cannot be undone from EHDL.
+          </p>
+        </PanelDialog>
+      )}
     </div>
   );
 }

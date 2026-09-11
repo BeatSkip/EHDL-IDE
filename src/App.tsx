@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -27,46 +27,24 @@ import { WindowControls } from "./components/WindowControls";
 import { ActivityBar } from "./components/ActivityBar";
 import type { ActivityId } from "./components/ActivityBar";
 import { LibraryView } from "./components/LibraryView";
+import { CreateView } from "./components/CreateView";
 import { SettingsModal } from "./components/SettingsModal";
 import type { Menu } from "./components/MenuBar";
+import { AppContext } from "./appContext";
+import type { AppState, ProjectState } from "./appContext";
 
-// ---- shared state ----
+// ---- panel components ----
 
-type ProjectState = { kind: "sample" } | { kind: "folder"; rootPath: string; rootName: string };
-
-interface AppState {
-  activeFileId: string;
-  project: ProjectState;
-  activity: ActivityId;
-  setActivity: (id: ActivityId) => void;
-  openFolderProject: () => Promise<void>;
-  /** Open a sample/document id that is already registered (content loaded). */
-  openFile: (id: string) => void;
-  /** Open a real file from disk (reads + registers it first). */
-  openFsPath: (path: string) => Promise<void>;
-  /** Persist a real document to disk. */
-  saveFile: (id: string) => Promise<void>;
-  inlineSchematicFileId: string | null;
-  toggleInlineSchematic: (fileId: string) => void;
-}
-
-const AppContext = createContext<AppState>({
-  activeFileId: defaultFileId,
-  project: { kind: "sample" },
-  activity: "explorer",
-  setActivity: () => {},
-  openFolderProject: async () => {},
-  openFile: () => {},
-  openFsPath: async () => {},
-  saveFile: async () => {},
-  inlineSchematicFileId: null,
-  toggleInlineSchematic: () => {},
-});
+/** Sidebar (dock tab) title for each activity-bar view. */
+const ACTIVITY_TITLES: Record<ActivityId, string> = {
+  explorer: "Project Explorer",
+  library: "Library Manager",
+  create: "Create",
+  settings: "Settings",
+};
 
 /** Remembers each file's editor/schematic divider position (percent). */
 const schematicSplitRatios = new Map<string, number>();
-
-// ---- panel components ----
 
 /** The left dock: switches its content based on the activity bar.
  *  (Settings no longer lives here — it opens as a modal instead.) */
@@ -74,6 +52,7 @@ function SidebarPanel() {
   const { project, activeFileId, openFile, openFsPath, activity } = useContext(AppContext);
 
   if (activity === "library") return <LibraryView />;
+  if (activity === "create") return <CreateView />;
 
   if (project.kind === "folder") {
     return (
@@ -268,7 +247,7 @@ export default function App() {
 
   // Keep the left dock's tab label in sync with the active activity view.
   useEffect(() => {
-    const name = activity === "library" ? "Library Manager" : "Project Explorer";
+    const name = ACTIVITY_TITLES[activity];
     if (model.getNodeById("project-tab")) {
       model.doAction(Actions.updateNodeAttributes("project-tab", { name }));
     }

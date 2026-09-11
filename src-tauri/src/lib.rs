@@ -18,6 +18,15 @@ fn open_folder_dialog() -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+/// Native "pick a file" dialog. Returns the chosen file path, or None.
+#[tauri::command]
+fn open_file_dialog() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("Open file")
+        .pick_file()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 /// Lists the entries of a directory (directories first, then by name).
 #[tauri::command]
 fn read_dir(path: String) -> Result<Vec<FsEntry>, String> {
@@ -49,6 +58,51 @@ fn read_file(path: String) -> Result<String, String> {
 #[tauri::command]
 fn write_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// Creates a directory (and any missing parents). Succeeds if it already exists.
+#[tauri::command]
+fn create_dir(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())
+}
+
+/// Renames / moves a file or directory.
+#[tauri::command]
+fn rename_entry(from: String, to: String) -> Result<(), String> {
+    std::fs::rename(&from, &to).map_err(|e| e.to_string())
+}
+
+/// Deletes a file, or a directory recursively.
+#[tauri::command]
+fn delete_entry(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if p.is_dir() {
+        std::fs::remove_dir_all(p).map_err(|e| e.to_string())
+    } else {
+        std::fs::remove_file(p).map_err(|e| e.to_string())
+    }
+}
+
+/// Recursively copies a file or directory (with its contents).
+fn copy_recursive(from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    if from.is_dir() {
+        std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+        for entry in std::fs::read_dir(from).map_err(|e| e.to_string())?.flatten() {
+            let src = entry.path();
+            let dst = to.join(entry.file_name());
+            copy_recursive(&src, &dst)?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(from, to).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
+/// Recursively copies a file or directory to a new path.
+#[tauri::command]
+fn copy_entry(from: String, to: String) -> Result<(), String> {
+    copy_recursive(std::path::Path::new(&from), std::path::Path::new(&to))
 }
 
 /// Platform-specific "reveal this folder" implementation.
@@ -94,9 +148,14 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             open_folder_dialog,
+            open_file_dialog,
             read_dir,
             read_file,
             write_file,
+            create_dir,
+            rename_entry,
+            delete_entry,
+            copy_entry,
             open_in_file_manager
         ])
         .run(tauri::generate_context!())

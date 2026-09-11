@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   loadSettings,
   saveSettings,
@@ -10,6 +11,8 @@ import {
 } from "../settings";
 import type { AppSettings, LibraryEntry, ServiceAccount } from "../settings";
 import { inTauri, openFolder } from "../fs";
+import { usePopupPosition } from "../popupPosition";
+import type { PopupAnchor } from "../popupPosition";
 
 type SettingsCategory = "general" | "library" | "shortcuts" | "services";
 
@@ -53,8 +56,9 @@ function FolderIcon() {
 
 // ---------------------------------------------------------------------------
 // Inline-edit grid — the Windows environment-variable-style table used by the
-// Library and Services categories: rows are selected, then edited inline with
-// the Add / Edit / Delete button column (Enter commits, Esc cancels).
+// Library category: rows are selected, then edited inline with the Add / Edit
+// / Delete button column (Enter commits, Esc cancels). Services use a
+// read-only table with a dialog instead — see servicesPane below.
 // ---------------------------------------------------------------------------
 
 interface GridColumn<T> {
@@ -271,6 +275,7 @@ const SHORTCUT_GROUPS: { title: string; items: { command: string; chords: string
     items: [
       { command: "Save the active file", chords: ["Ctrl+S"] },
       { command: "Close the Settings dialog", chords: ["Esc"] },
+      { command: "Close the service add/edit dialog", chords: ["Esc"] },
       { command: "Commit an inline rename or edit", chords: ["Enter"] },
       { command: "Cancel an inline rename or edit", chords: ["Esc"] },
       { command: "Clear the library search (then close it)", chords: ["Esc"] },
@@ -297,7 +302,61 @@ const SHORTCUT_GROUPS: { title: string; items: { command: string; chords: string
   },
 ];
 
-/** Common component suppliers / repositories offered as service suggestions. */
+/** Concrete services offered by the Add menu; "" means free text (Custom…). */
+const SERVICE_TYPES: { label: string; service: string; description: string }[] = [
+  {
+    label: "GitHub credentials",
+    service: "GitHub",
+    description: "Personal access token for repositories",
+  },
+  {
+    label: "GitLab credentials",
+    service: "GitLab",
+    description: "Personal access token for repositories",
+  },
+  {
+    label: "Octopart",
+    service: "Octopart",
+    description: "Parts catalog and inventory API",
+  },
+  {
+    label: "Digi-Key",
+    service: "Digi-Key",
+    description: "Parts catalog API",
+  },
+  {
+    label: "Mouser",
+    service: "Mouser",
+    description: "Parts catalog API",
+  },
+  {
+    label: "LCSC",
+    service: "LCSC",
+    description: "Parts catalog API",
+  },
+  {
+    label: "SnapEDA",
+    service: "SnapEDA",
+    description: "Symbols, footprints and 3D models",
+  },
+  {
+    label: "Ultra Librarian",
+    service: "Ultra Librarian",
+    description: "CAD models and reference designs",
+  },
+  {
+    label: "CAD file resources",
+    service: "CAD files",
+    description: "Generic CAD file download source",
+  },
+  {
+    label: "Custom…",
+    service: "",
+    description: "Any other service",
+  },
+];
+
+/** Free-text suggestions for the service name input (custom add / edit). */
 const SERVICE_SUGGESTIONS = [
   "Octopart",
   "Digi-Key",
@@ -315,6 +374,18 @@ function maskKey(key: string): string {
   return key.length <= 4 ? "•".repeat(key.length) : `${"•".repeat(8)}${key.slice(-4)}`;
 }
 
+/** Draft state of the add/edit service dialog. */
+interface ServiceDialogState {
+  mode: "add" | "edit";
+  /** Row id in edit mode. */
+  id: string | null;
+  service: string;
+  account: string;
+  apiKey: string;
+  /** Pre-filled service from the Add menu — shown read-only. */
+  serviceLocked: boolean;
+}
+
 /**
  * Settings dialog opened from the gear at the bottom of the activity bar.
  * A VS Code-flavoured modal with a category rail: General, Library,
@@ -327,6 +398,18 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [libraries, setLibraries] = useState<LibraryEntry[]>(() => loadLibraries());
   const [services, setServices] = useState<ServiceAccount[]>(() => loadServices());
   const [browsing, setBrowsing] = useState(false);
+
+  // Services: read-only table + Add menu (service types) + add/edit dialog.
+  const [serviceSelectedId, setServiceSelectedId] = useState<string | null>(null);
+  const [serviceDialog, setServiceDialog] = useState<ServiceDialogState | null>(null);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [addAnchor, setAddAnchor] = useState<PopupAnchor | null>(null);
+
+  const addWrapRef = useRef<HTMLDivElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  // The Add menu measures itself and flips when it would leave the window.
+  const addMenuPos = usePopupPosition(addMenuOpen, addAnchor, addMenuRef);
 
   const update = (patch: Partial<AppSettings>) => setSettings(saveSettings(patch));
 
@@ -342,14 +425,137 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // Esc closes the modal (grids and inputs stop propagation while editing).
+  const dialogOpen = serviceDialog !== null;
+
+  // Esc closes the modal — but not while the service add/edit dialog or its
+  // Add menu is open; those close themselves first.
   useEffect(() => {
+    if (addMenuOpen || dialogOpen) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, addMenuOpen, dialogOpen]);
+
+  // Close the Add menu on outside click, Esc, resize or window blur.
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const close = () => setAddMenuOpen(false);
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (addWrapRef.current?.contains(target) || addMenuRef.current?.contains(target)) return;
+      close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("blur", close);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [addMenuOpen]);
+
+  // Esc closes the service dialog (the modal itself stays open).
+  useEffect(() => {
+    if (!dialogOpen) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setServiceDialog(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dialogOpen]);
+
+  /** Toggle the Add menu, anchored to the Add button. */
+  const toggleAddMenu = () => {
+    if (addMenuOpen) {
+      setAddMenuOpen(false);
+      return;
+    }
+    const rect = addWrapRef.current?.getBoundingClientRect();
+    setAddAnchor(rect ? { x: rect.right, y: rect.bottom, h: rect.height, align: "right" } : null);
+    setAddMenuOpen(true);
+  };
+
+  /** Start the add dialog pre-filled (and locked) for the chosen service. */
+  const openAddService = (type: (typeof SERVICE_TYPES)[number]) => {
+    setAddMenuOpen(false);
+    setServiceDialog({
+      mode: "add",
+      id: null,
+      service: type.service,
+      account: "",
+      apiKey: "",
+      serviceLocked: type.service !== "",
+    });
+  };
+
+  const editService = (row: ServiceAccount) => {
+    setAddMenuOpen(false);
+    setServiceSelectedId(row.id);
+    setServiceDialog({
+      mode: "edit",
+      id: row.id,
+      service: row.service,
+      account: row.account,
+      apiKey: row.apiKey,
+      serviceLocked: false,
+    });
+  };
+
+  const patchServiceDialog = (patch: Partial<ServiceDialogState>) =>
+    setServiceDialog((current) => (current ? { ...current, ...patch } : current));
+
+  /** Commit the add/edit dialog into the services list. */
+  const saveServiceDialog = () => {
+    if (!serviceDialog) return;
+    const service = serviceDialog.service.trim();
+    if (!service) return;
+    const account = serviceDialog.account.trim();
+    const apiKey = serviceDialog.apiKey.trim();
+    if (serviceDialog.mode === "edit" && serviceDialog.id) {
+      const id = serviceDialog.id;
+      setServices(
+        saveServices(
+          services.map((row) => (row.id === id ? { ...row, service, account, apiKey } : row)),
+        ),
+      );
+    } else {
+      const id = crypto.randomUUID();
+      setServices(saveServices([...services, { id, service, account, apiKey }]));
+      setServiceSelectedId(id);
+    }
+    setServiceDialog(null);
+  };
+
+  /** Enter commits the dialog (from any of its inputs). */
+  const onDialogInputKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveServiceDialog();
+    }
+  };
+
+  const deleteSelectedService = () => {
+    if (!serviceSelectedId) return;
+    setServices(saveServices(services.filter((row) => row.id !== serviceSelectedId)));
+    setServiceSelectedId(null);
+  };
+
+  /** Leave no menu or dialog behind when another category is opened. */
+  const switchCategory = (id: SettingsCategory) => {
+    setCategory(id);
+    setAddMenuOpen(false);
+    setServiceDialog(null);
+  };
+
+  const selectedService = services.find((row) => row.id === serviceSelectedId) ?? null;
 
   const generalPane = (
     <>
@@ -520,94 +726,109 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     </div>
   );
 
+  // Read-only services table — accounts and keys are entered in the add/edit
+  // dialog, never inline in the table.
   const servicesPane = (
     <div className="settings-section">
       <div className="settings-row">
         <div className="settings-row-text">
           <div className="settings-row-label">Services</div>
           <div className="settings-row-desc">
-            Accounts and API keys for external services — component suppliers (Octopart, Digi-Key,
-            Mouser, LCSC…) and repositories. Select a row and use the buttons to edit it, or
-            double-click the row.
+            Accounts and API keys for external services — repositories (GitHub, GitLab) and CAD
+            resources (Ultra Librarian, SnapEDA, parts suppliers…). Use <b>Add</b> to pick a
+            service, then enter the account and key in the dialog. Select a row (or double-click
+            it) to edit or remove it.
           </div>
         </div>
       </div>
 
-      <InlineGrid<ServiceAccount>
-        rows={services}
-        emptyText="No services yet — click “Add”."
-        createRow={() => ({
-          id: crypto.randomUUID(),
-          service: "",
-          account: "",
-          apiKey: "",
-        })}
-        onChange={(rows) => setServices(saveServices(rows))}
-        columns={[
-          {
-            label: "Service",
-            width: 170,
-            render: (row) =>
-              row.service ? (
-                <span className="settings-cell-strong" title={row.service}>
-                  {row.service}
-                </span>
-              ) : (
-                <span className="settings-cell-missing">(unnamed)</span>
-              ),
-            edit: (draft, patch, onKey) => (
-              <EditInput
-                ariaLabel="Service name"
-                placeholder="e.g. Octopart"
-                autoFocus
-                list="ehdl-service-suggestions"
-                value={draft.service}
-                onChange={(service) => patch({ service })}
-                onKey={onKey}
-              />
-            ),
-          },
-          {
-            label: "Account",
-            render: (row) =>
-              row.account ? (
-                <span title={row.account}>{row.account}</span>
-              ) : (
-                <span className="settings-cell-missing">(no account)</span>
-              ),
-            edit: (draft, patch, onKey) => (
-              <EditInput
-                ariaLabel="Service account"
-                placeholder="user name or e-mail"
-                value={draft.account}
-                onChange={(account) => patch({ account })}
-                onKey={onKey}
-              />
-            ),
-          },
-          {
-            label: "API key",
-            width: 190,
-            render: (row) =>
-              row.apiKey ? (
-                <span className="settings-cell-mono" title="Hidden — use Edit to view or change">
-                  {maskKey(row.apiKey)}
-                </span>
-              ) : (
-                <span className="settings-cell-missing">(not set)</span>
-              ),
-            edit: (draft, patch, onKey) => (
-              <EditInput
-                ariaLabel="Service API key"
-                placeholder="paste the API key"
-                value={draft.apiKey}
-                onChange={(apiKey) => patch({ apiKey })}
-                onKey={onKey}
-              />
-            ),
-          },
-        ]}
-      />
+      <div className="settings-table-editor">
+        <div className="settings-tablebox">
+          <table className="settings-table">
+            <colgroup>
+              <col style={{ width: 170 }} />
+              <col />
+              <col style={{ width: 190 }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">Service</th>
+                <th scope="col">Account</th>
+                <th scope="col">API key</th>
+              </tr>
+            </thead>
+            <tbody>
+              {services.map((row) => (
+                <tr
+                  key={row.id}
+                  className={`settings-grid-row ${serviceSelectedId === row.id ? "selected" : ""}`}
+                  onClick={() => setServiceSelectedId(row.id)}
+                  onDoubleClick={() => editService(row)}
+                >
+                  <td className="settings-table-cell">
+                    {row.service ? (
+                      <span className="settings-cell-strong" title={row.service}>
+                        {row.service}
+                      </span>
+                    ) : (
+                      <span className="settings-cell-missing">(unnamed)</span>
+                    )}
+                  </td>
+                  <td className="settings-table-cell">
+                    {row.account ? (
+                      <span title={row.account}>{row.account}</span>
+                    ) : (
+                      <span className="settings-cell-missing">(no account)</span>
+                    )}
+                  </td>
+                  <td className="settings-table-cell">
+                    {row.apiKey ? (
+                      <span className="settings-cell-mono" title="Hidden — use Edit to view or change">
+                        {maskKey(row.apiKey)}
+                      </span>
+                    ) : (
+                      <span className="settings-cell-missing">(not set)</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {services.length === 0 && (
+            <div className="settings-table-empty">No services yet — click “Add”.</div>
+          )}
+        </div>
+
+        <div className="settings-table-actions">
+          <div className="settings-add-wrap" ref={addWrapRef}>
+            <button
+              className="btn"
+              onClick={toggleAddMenu}
+              aria-haspopup="menu"
+              aria-expanded={addMenuOpen}
+              title="Choose a service to add"
+            >
+              Add
+            </button>
+          </div>
+          <button
+            className="btn"
+            onClick={() => selectedService && editService(selectedService)}
+            disabled={!selectedService || dialogOpen}
+            title={selectedService ? "Edit the selected service" : "Select a service first"}
+          >
+            Edit
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={deleteSelectedService}
+            disabled={!selectedService}
+            title={selectedService ? "Remove the selected service" : "Select a service first"}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
 
       <datalist id="ehdl-service-suggestions">
         {SERVICE_SUGGESTIONS.map((name) => (
@@ -617,7 +838,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
       <p className="settings-note">
         Keys are stored locally on this machine (app storage, plain text for now — moving them to
-        the OS credential store is planned) and are only shown while editing a row.
+        the OS credential store is planned). They are masked in the table and only shown in the
+        add/edit dialog.
       </p>
     </div>
   );
@@ -630,45 +852,157 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="settings-overlay" onClick={onClose}>
-      <div
-        className="settings-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Settings"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="settings-modal-header">
-          <span className="settings-modal-title">Settings</span>
-          <button
-            className="settings-modal-close"
-            title="Close settings (Esc)"
-            aria-label="Close settings"
-            onClick={onClose}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" fill="none" />
-            </svg>
-          </button>
-        </div>
+    <>
+      <div className="settings-overlay" onClick={onClose}>
+        <div
+          className="settings-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Settings"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="settings-modal-header">
+            <span className="settings-modal-title">Settings</span>
+            <button
+              className="settings-modal-close"
+              title="Close settings (Esc)"
+              aria-label="Close settings"
+              onClick={onClose}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              </svg>
+            </button>
+          </div>
 
-        <div className="settings-modal-body">
-          <nav className="settings-cats" aria-label="Settings categories">
-            {CATEGORIES.map((c) => (
-              <button
-                key={c.id}
-                className={`settings-cat-btn ${category === c.id ? "active" : ""}`}
-                onClick={() => setCategory(c.id)}
-              >
-                {c.label}
-              </button>
-            ))}
-          </nav>
-          <section className="settings-pane" aria-label="Settings content">
-            {panes[category]}
-          </section>
+          <div className="settings-modal-body">
+            <nav className="settings-cats" aria-label="Settings categories">
+              {CATEGORIES.map((c) => (
+                <button
+                  key={c.id}
+                  className={`settings-cat-btn ${category === c.id ? "active" : ""}`}
+                  onClick={() => switchCategory(c.id)}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </nav>
+            <section className="settings-pane" aria-label="Settings content">
+              {panes[category]}
+            </section>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Add menu — portaled above the Settings modal and positioned (with
+          left/top) by usePopupPosition, opening leftwards from the Add
+          button and flipping when it would leave the window. */}
+      {addMenuOpen &&
+        createPortal(
+          <div
+            className="settings-menu"
+            role="menu"
+            aria-label="Add service"
+            ref={addMenuRef}
+            style={{
+              left: addMenuPos?.left ?? addAnchor?.x ?? 0,
+              top: addMenuPos?.top ?? addAnchor?.y ?? 0,
+              visibility: addMenuPos ? "visible" : "hidden",
+            }}
+          >
+            <div className="settings-menu-title">Add service</div>
+            {SERVICE_TYPES.map((type) => (
+              <button
+                key={type.label}
+                className="settings-menu-item"
+                role="menuitem"
+                onClick={() => openAddService(type)}
+              >
+                <span className="settings-menu-label">{type.label}</span>
+                <span className="settings-menu-desc">{type.description}</span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+
+      {/* Add/edit service dialog — portaled above the Settings modal. */}
+      {serviceDialog &&
+        createPortal(
+          <div className="service-dialog-overlay">
+            <div
+              className="service-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label={serviceDialog.mode === "add" ? "Add service" : "Edit service"}
+            >
+              <div className="service-dialog-title">
+                {serviceDialog.mode === "add" ? "Add service" : "Edit service"}
+              </div>
+              <label className="service-field">
+                <span>Service</span>
+                {serviceDialog.serviceLocked ? (
+                  <span className="service-dialog-value">{serviceDialog.service}</span>
+                ) : (
+                  <input
+                    className="settings-input"
+                    type="text"
+                    spellCheck={false}
+                    placeholder="e.g. Octopart"
+                    aria-label="Service name"
+                    list="ehdl-service-suggestions"
+                    autoFocus
+                    value={serviceDialog.service}
+                    onChange={(e) => patchServiceDialog({ service: e.target.value })}
+                    onKeyDown={onDialogInputKey}
+                  />
+                )}
+              </label>
+              <label className="service-field">
+                <span>Account</span>
+                <input
+                  className="settings-input"
+                  type="text"
+                  spellCheck={false}
+                  placeholder="user name or e-mail"
+                  aria-label="Service account"
+                  autoFocus={serviceDialog.serviceLocked}
+                  value={serviceDialog.account}
+                  onChange={(e) => patchServiceDialog({ account: e.target.value })}
+                  onKeyDown={onDialogInputKey}
+                />
+              </label>
+              <label className="service-field">
+                <span>API key</span>
+                <input
+                  className="settings-input"
+                  type="text"
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder="paste the API key"
+                  aria-label="Service API key"
+                  value={serviceDialog.apiKey}
+                  onChange={(e) => patchServiceDialog({ apiKey: e.target.value })}
+                  onKeyDown={onDialogInputKey}
+                />
+              </label>
+              <div className="service-dialog-actions">
+                <button className="btn" onClick={() => setServiceDialog(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn settings-primary-btn"
+                  disabled={!serviceDialog.service.trim()}
+                  title={serviceDialog.service.trim() ? undefined : "Enter a service name first"}
+                  onClick={saveServiceDialog}
+                >
+                  {serviceDialog.mode === "add" ? "Add" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
