@@ -74,3 +74,9 @@ export async function openInFileManager(path: string): Promise<void> {
   if (!inTauri) return;
   await invoke("open_in_file_manager", { path });
 }
+
+/** Opens a URL (or file) with the OS default handler — the browser for links. */
+export async function openExternal(target: string): Promise<void> {
+  if (!inTauri) return;
+  await invoke("open_external", { target });
+}

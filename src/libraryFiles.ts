@@ -2,24 +2,67 @@
  * Plain-text library file model.
  *
  * A library folder holds one folder per category (components, symbols,
- * footprints, board-snippets). Inside a category folder there are **part
- * files** (plain text) and optional **sub-category folders**. The real part
- * format is still to be decided, so everything here is deliberately simple
- * text — see `buildPartContent`.
+ * footprints, board-snippets, templates). Inside a category folder there are
+ * **part files** (plain text) and optional **sub-category folders**. The real
+ * part format is still to be decided, so everything here is deliberately
+ * simple text — see `buildPartContent`.
  */
 
 import type { FsEntry } from "./fs";
 import type { LibrarySectionId } from "./settings";
 
-/** Extension used for part files (placeholder — the format is still open). */
-export const ITEM_EXT = ".txt";
+/**
+ * Extension used for the part files of each category.
+ *
+ * Components are `.prt.ehd` (edited by the Part editor). Symbols will be
+ * `.sym.ehd` once the symbol editor exists; the remaining categories keep the
+ * plain `.txt` placeholder until their formats are decided.
+ */
+export const SECTION_EXT: Record<LibrarySectionId, string> = {
+  components: ".prt.ehd",
+  symbols: ".sym.ehd",
+  footprints: ".txt",
+  "board-snippets": ".txt",
+  templates: ".txt",
+};
 
-/** Human labels for the four category folders. */
+/** Extension of a component part file. */
+export const PART_EXT = ".prt.ehd";
+
+/** True for component part files (`xxx.prt.ehd`) — opened in the Part editor. */
+export function isPartFile(path: string): boolean {
+  return path.toLowerCase().endsWith(PART_EXT);
+}
+
+/**
+ * Extensions the Library Manager hides: the category folder already says what
+ * the file is, so `mosfet_n.prt.ehd` is listed as `mosfet_n`. Anything with an
+ * unknown extension (an imported `.kicad_mod`, say) keeps it.
+ */
+const HIDDEN_EXTS = [PART_EXT, ".sym.ehd", ".txt"];
+
+/** The hidden extension of a file name, or "" when it has none. */
+export function hiddenExt(name: string): string {
+  const lower = name.toLowerCase();
+  for (const ext of HIDDEN_EXTS) {
+    if (lower.endsWith(ext) && name.length > ext.length) return name.slice(name.length - ext.length);
+  }
+  return "";
+}
+
+/** File name as shown in the Library Manager. */
+export function displayName(name: string): string {
+  const ext = hiddenExt(name);
+  return ext ? name.slice(0, name.length - ext.length) : name;
+}
+
+/** Human labels for the category folders, in the order they are shown. */
 export const SECTION_LABELS: Record<LibrarySectionId, string> = {
   components: "Components",
   symbols: "Symbols",
   footprints: "Footprints",
   "board-snippets": "Board Snippets",
+  templates: "Templates",
 };
 
 /** Base name of a freshly created part / sub-category (renamed right away). */
@@ -28,23 +71,35 @@ export const DEFAULT_ITEM_NAMES: Record<LibrarySectionId, string> = {
   symbols: "new_symbol",
   footprints: "new_footprint",
   "board-snippets": "new_board_snippet",
+  templates: "new_template",
 };
 
 /** Default sub-category folder name. */
 export const DEFAULT_SUBCATEGORY_NAME = "new_category";
 
 /** What a part file in each category describes. */
-export type PartKind = "component" | "symbol" | "footprint" | "board-snippet";
+export type PartKind = "component" | "symbol" | "footprint" | "board-snippet" | "template";
 
 export const PART_KIND: Record<LibrarySectionId, PartKind> = {
   components: "component",
   symbols: "symbol",
   footprints: "footprint",
   "board-snippets": "board-snippet",
+  templates: "template",
 };
 
-/** Split a file name into its base and extension ("res.txt" → "res", ".txt"). */
+/** Extensions made of more than one dot-separated piece (checked first). */
+const COMPOUND_EXTS = [PART_EXT, ".sym.ehd"];
+
+/** Split a file name into base and extension ("res.prt.ehd" → "res", ".prt.ehd"). */
 export function splitName(name: string): { base: string; ext: string } {
+  const lower = name.toLowerCase();
+  for (const ext of COMPOUND_EXTS) {
+    if (lower.endsWith(ext)) {
+      const cut = name.length - ext.length;
+      return { base: name.slice(0, cut), ext: name.slice(cut) };
+    }
+  }
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return { base: name, ext: "" };
   return { base: name.slice(0, dot), ext: name.slice(dot) };
@@ -98,7 +153,7 @@ export function buildPartContent(opts: {
   const { kind, name, description = "", library = "", pins = [] } = opts;
   const lines: string[] = [
     `# EHDL ${kind}: ${name}`,
-    "# Provisional plain-text format — the real part format is still to be decided.",
+    "# Provisional plain-text format — the definition language/backend is not chosen yet.",
     "",
     `kind        = ${kind}`,
     `name        = ${name}`,

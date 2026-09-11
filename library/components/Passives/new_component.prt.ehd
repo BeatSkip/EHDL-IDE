@@ -1,0 +1,5 @@
+# EHDL component — provisional plain-text format.
+# The definition language/backend is not chosen yet; this file is plain text.
+
+kind        = component
+name        = asdf

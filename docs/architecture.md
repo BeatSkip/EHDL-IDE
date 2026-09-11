@@ -31,7 +31,8 @@ into the Rust commands (see `src/fs.ts` and `src-tauri/src/lib.rs`).
 | `main.tsx` | Entry point: Monaco/flexlayout/global CSS, splash fade-out, disabled native context menu |
 | `settings.ts` | LocalStorage-backed stores: editor settings, library registry, service accounts (library contents are read from disk) |
 | `libraryMeta.ts` | Reads/writes the per-library manifest (`<library_name>.ehdlib.json`) |
-| `libraryFiles.ts` | Part file naming and the provisional plain-text part format |
+| `libraryFiles.ts` | Part file naming, per-category extensions and the plain-text part template |
+| `partFile.ts` | The provisional `xxx.prt.ehd` format (parse / serialize) |
 | `libraryIcons.tsx` | Icon set available to sub-categories |
 | `fs.ts` | Thin typed wrappers over the Tauri `invoke` commands |
 | `documents.ts`, `editorState.ts`, `editors.ts` | Open-document registry, per-file text store, live Monaco instance registry |
@@ -42,14 +43,19 @@ into the Rust commands (see `src/fs.ts` and `src-tauri/src/lib.rs`).
 ### Library manager
 
 Libraries are top folders (path + logical VHDL name) registered under
-Settings → Library. Each library exposes four sections — **components**,
-**symbols**, **footprints**, **board snippets** — which are **real subfolders**
+Settings → Library. Each library exposes five sections — **components**,
+**symbols**, **footprints**, **board snippets**, **templates** — which are
+**real subfolders**
 inside the library folder (created automatically if missing). The items listed
 under each section are **plain-text part files** in that folder, read straight
 from disk; a component, symbol, footprint or snippet is a separate file type
-(they will be linked to one another later). Categories can also hold
-**sub-category folders** (right-click a category → *New sub-category*); parts
-and sub-categories may nest, and the tree is loaded lazily as folders expand.
+(they will be linked to one another later). Known part extensions
+(`.prt.ehd`, `.sym.ehd`, `.txt`) are hidden in the tree — the category folder
+already states the type — and re-applied when the row is renamed; a file with
+any other extension keeps it. Categories can also hold **sub-category folders** (right-click a category *or*
+a sub-category → *New sub-category*), so sub-categories nest to any depth;
+parts and folders may be mixed at each level, and the tree is loaded lazily as
+folders expand (search walks it, bounded to 8 levels).
 
 Details that don't belong in a part file live in the **library manifest**,
 `<library_name>.ehdlib.json`, in the library's top folder — see `libraryMeta.ts`.
@@ -59,8 +65,30 @@ sub-category shows a warning when it still contains part files.
 
 Add / Rename / Copy / Paste / Duplicate / Delete act on the file system through
 the Rust commands (`rename_entry`, `copy_entry`, `delete_entry`); a new part is
-written with `write_file`. The part file format/extension is still a
-placeholder (`buildPartContent` in `libraryFiles.ts`).
+written with `write_file`. Components are `xxx.prt.ehd`, symbols `xxx.sym.ehd`;
+the other categories keep the `.txt` placeholder (`SECTION_EXT` in
+`libraryFiles.ts`) and their formats are still to be decided.
+
+### Part editor
+
+Component parts are `xxx.prt.ehd` files (`isPartFile`); opening one — from the
+library tree *or* the Create tab — mounts the **Part editor** dock tab instead
+of the text/schematic editor (`openFile` picks the tab component from the path).
+It offers the two ways of defining the same file:
+
+- **Graphical** — part name, description, linked schematic symbols and
+  footprints (each link can be previewed in a text pane or opened), and a table
+  of preferred vendor parts with product links and datasheets (`open_external`
+  opens those in the browser).
+- **VHDL** — the raw text, in Monaco.
+
+Linked paths are stored library-relative when they live inside the library.
+Both modes work on the provisional format in `partFile.ts` (`parsePart` /
+`serializePart`); unrecognised lines — a `pins:` block, comments — are kept in
+`extra` and written back, so hand-written text survives a graphical save. The
+real definition language and backend are still to be chosen. Symbol files
+(`.sym.ehd`) open in the normal text editor — the symbol editor is not written
+yet.
 
 ### Create panel
 

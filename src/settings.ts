@@ -131,13 +131,20 @@ export function subscribeLibraries(listener: LibrariesListener): () => void {
 }
 
 // ---------------------------------------------------------------------------
-// Library sections — the four content folders every library exposes on disk:
-// components, symbols, footprints and board-snippets. The items inside each
-// section are real subfolders (or files) inside that folder; they are read
-// straight from the file system by the Library Manager, not stored here.
+// Library sections — the category folders every library exposes on disk:
+// components, symbols, footprints, board-snippets and templates. The items
+// inside each section are real subfolders (or files) inside that folder; they
+// are read straight from the file system by the Library Manager, not stored
+// here. The order below is the order the sections are shown in.
 // ---------------------------------------------------------------------------
 
-export const LIBRARY_SECTIONS = ["components", "symbols", "footprints", "board-snippets"] as const;
+export const LIBRARY_SECTIONS = [
+  "components",
+  "symbols",
+  "footprints",
+  "board-snippets",
+  "templates",
+] as const;
 
 export type LibrarySectionId = (typeof LIBRARY_SECTIONS)[number];
 

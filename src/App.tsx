@@ -15,6 +15,7 @@ import {
 import { defaultFileId, projectTree } from "./data";
 import { baseName, docIdForPath, docName, docPath, initialContent, isRealDoc, registerRealDoc } from "./documents";
 import { inTauri, openFolder, readFileText, writeFileText } from "./fs";
+import { isPartFile } from "./libraryFiles";
 import { getEditorText, setEditorText } from "./editorState";
 import { getEditor } from "./editors";
 import { ProjectTree } from "./components/ProjectTree";
@@ -28,6 +29,7 @@ import { ActivityBar } from "./components/ActivityBar";
 import type { ActivityId } from "./components/ActivityBar";
 import { LibraryView } from "./components/LibraryView";
 import { CreateView } from "./components/CreateView";
+import { PartEditor } from "./components/PartEditor";
 import { SettingsModal } from "./components/SettingsModal";
 import type { Menu } from "./components/MenuBar";
 import { AppContext } from "./appContext";
@@ -44,6 +46,10 @@ const ACTIVITY_TITLES: Record<ActivityId, string> = {
 
 /** Remembers each file's editor/schematic divider position (percent). */
 const schematicSplitRatios = new Map<string, number>();
+
+/** Tab components that host an open document (text editor or part editor). */
+const isDocumentComponent = (component: string | undefined): boolean =>
+  component === "editor" || component === "part";
 
 /** The left dock: switches its content based on the activity bar.
  *  (Settings no longer lives here — it opens as a modal instead.) */
@@ -138,6 +144,8 @@ const factory = (node: TabNode) => {
       return <CreateView />;
     case "editor":
       return <EditorPane fileId={node.getConfig()?.fileId} />;
+    case "part":
+      return <PartEditor fileId={node.getConfig()?.fileId} />;
     case "properties":
       return <PropertiesTab />;
     default:
@@ -161,7 +169,9 @@ const DEFAULT_JSON: IJsonModel = {
       {
         type: "tabset",
         id: "project-tabset",
-        weight: 18,
+        // Sidebar width (flexlayout weight, relative to the other tabsets):
+        // 27 ≈ 1.5× the original 18, so the explorer / library panel is wider.
+        weight: 27,
         children: [{ id: "project-tab", type: "tab", component: "project", name: "Project" }],
       },
       {
@@ -274,19 +284,21 @@ export default function App() {
     if (hasCreate) model.doAction(Actions.deleteTab("create-tab"));
   }, [activity, model]);
 
-  /** Find the open editor tab for a document id (in any editor group). */
+  /** Find the open document tab (text editor or part editor) for a file id. */
   const findOpenFileTab = (m: Model, fileId: string): TabNode | undefined => {
     let found: TabNode | undefined;
     m.visitNodes((node: Node) => {
       if (!found && node.getType() === "tab") {
         const t = node as TabNode;
-        if (t.getComponent() === "editor" && t.getConfig()?.fileId === fileId) found = t;
+        if (isDocumentComponent(t.getComponent()) && t.getConfig()?.fileId === fileId) found = t;
       }
     });
     return found;
   };
 
-  /** Open (or focus) an already-registered document as a tab. */
+  /** Open (or focus) an already-registered document as a tab. Component part
+   *  files (`xxx.prt.ehd`) open in the Part editor, everything else in the
+   *  text/schematic editor. */
   const openFile = (id: string) => {
     setActiveFileId(id);
     const existing = findOpenFileTab(model, id);
@@ -295,13 +307,16 @@ export default function App() {
       return;
     }
 
+    const path = docPath(id);
+    const component = path && isPartFile(path) ? "part" : "editor";
+
     const targetId = model.getNodeById(activeEditorTsRef.current) ? activeEditorTsRef.current : "editor-tabset";
     model.doAction(
       Actions.addTab(
         {
-          id: `editor-${id}`,
+          id: `${component}-${id}`,
           type: "tab",
-          component: "editor",
+          component,
           name: docName(id),
           enableClose: true,
           config: { fileId: id },
@@ -422,7 +437,7 @@ export default function App() {
     m.visitNodes((node: Node) => {
       if (node.getType() === "tab") {
         const t = node as TabNode;
-        if (t.getComponent() === "editor" && t.isSelected()) {
+        if (isDocumentComponent(t.getComponent()) && t.isSelected()) {
           activeFile = t.getConfig()?.fileId ?? activeFile;
           const parent = t.getParent();
           if (parent) activeEditorTsRef.current = parent.getId();
@@ -475,8 +490,12 @@ export default function App() {
   ) => {
     if (!(tabSetNode instanceof TabSetNode) || !isEditorTabSet(tabSetNode)) return;
     const ts = tabSetNode;
-    const groupFileId = ts.getSelectedNode()?.getConfig()?.fileId as string | undefined;
+    const selectedTab = ts.getSelectedNode();
+    const groupFileId = selectedTab?.getConfig()?.fileId as string | undefined;
     const canAct = groupFileId !== undefined;
+    // The schematic pane belongs to the text editor; the Part editor has its
+    // own VHDL / Graphical modes instead, so it doesn't get this button.
+    const isTextEditorTab = selectedTab?.getComponent() === "editor";
 
     const groups = editorGroupsInOrder();
     const idx = groups.findIndex((g) => g.getId() === ts.getId());
@@ -484,17 +503,21 @@ export default function App() {
     const hasRightGroup = idx >= 0 && idx < groups.length - 1;
 
     renderValues.buttons.push(
-      <button
-        key="inline-schematic"
-        className="flexlayout__tab_toolbar_button editor-tool-button"
-        title="Toggle schematic pane (split editor along the center)"
-        aria-label="Toggle schematic pane"
-        disabled={!canAct}
-        onClick={() => groupFileId && toggleInlineSchematic(groupFileId)}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <IconSchematicSplit />
-      </button>,
+      ...(isTextEditorTab
+        ? [
+            <button
+              key="inline-schematic"
+              className="flexlayout__tab_toolbar_button editor-tool-button"
+              title="Toggle schematic pane (split editor along the center)"
+              aria-label="Toggle schematic pane"
+              disabled={!canAct}
+              onClick={() => groupFileId && toggleInlineSchematic(groupFileId)}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <IconSchematicSplit />
+            </button>,
+          ]
+        : []),
       <button
         key="split-left"
         className="flexlayout__tab_toolbar_button editor-tool-button"

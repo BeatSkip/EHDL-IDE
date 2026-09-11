@@ -19,11 +19,13 @@ import type { FsEntry } from "../fs";
 import { usePopupPosition } from "../popupPosition";
 import type { PopupAnchor } from "../popupPosition";
 import {
-  ITEM_EXT,
+  SECTION_EXT,
   SECTION_LABELS,
   DEFAULT_ITEM_NAMES,
   DEFAULT_SUBCATEGORY_NAME,
+  displayName,
   fileNameOf,
+  hiddenExt,
   splitName,
   uniqueFileName,
 } from "../libraryFiles";
@@ -38,7 +40,7 @@ import {
 import type { LibraryMeta, SubCategoryMeta } from "../libraryMeta";
 import { PanelDialog } from "./PanelDialog";
 
-/** The four category folders every library exposes. */
+/** The category folders every library exposes, in display order. */
 const SECTIONS: { id: LibrarySectionId; label: string }[] = LIBRARY_SECTIONS.map((id) => ({
   id,
   label: SECTION_LABELS[id],
@@ -280,11 +282,11 @@ function LibraryDetailsDialog({
 /**
  * Library manager sidebar panel.
  *
- * A library is a folder. Its four categories (components, symbols, footprints,
- * board-snippets) are subfolders, holding plain-text part files plus optional
- * **sub-category folders**. Details that are not part of a part file — library
- * description/notes, and each sub-category's icon/description/notes — live in
- * `<library_name>.ehdlib.json` in the library's top folder.
+ * A library is a folder. Its categories (components, symbols, footprints,
+ * board-snippets, templates) are subfolders, holding plain-text part files plus
+ * optional **sub-category folders**. Details that are not part of a part file —
+ * library description/notes, and each sub-category's icon/description/notes —
+ * live in `<library_name>.ehdlib.json` in the library's top folder.
  */
 export function LibraryView() {
   const { openFsPath } = useContext(AppContext);
@@ -473,7 +475,7 @@ export function LibraryView() {
     if (!isFiltering || !libraryData || !inTauri) return;
     let cancelled = false;
     const walk = async (path: string, depth: number): Promise<void> => {
-      if (depth > 4) return;
+      if (depth > 8) return;
       let entries: FsEntry[];
       try {
         entries = await listDir(path);
@@ -576,18 +578,22 @@ export function LibraryView() {
     if (changed) void persistMeta({ ...meta, subCategories });
   };
 
+  /** Drop a sub-category's manifest entry — and those of its descendants. */
   const removeMetaEntry = (path: string) => {
     if (!libPath || !meta) return;
     const key = relativeKey(libPath, path);
-    if (!(key in meta.subCategories)) return;
+    const doomed = Object.keys(meta.subCategories).filter(
+      (entry) => entry === key || entry.startsWith(`${key}/`),
+    );
+    if (doomed.length === 0) return;
     const subCategories = { ...meta.subCategories };
-    delete subCategories[key];
+    for (const entry of doomed) delete subCategories[entry];
     void persistMeta({ ...meta, subCategories });
   };
 
   /** Count every part file inside a folder (recursively, bounded). */
   const countParts = async (path: string, depth = 0): Promise<number> => {
-    if (depth > 5) return 0;
+    if (depth > 8) return 0;
     let entries: FsEntry[];
     try {
       entries = await listDir(path);
@@ -651,20 +657,25 @@ export function LibraryView() {
 
   /** Create a new part file in a folder and start renaming it. */
   const addPart = async (section: LibrarySectionId, folderPath: string) => {
-    const name = uniqueFileName(DEFAULT_ITEM_NAMES[section], ITEM_EXT, entriesFor(section, folderPath));
+    const name = uniqueFileName(
+      DEFAULT_ITEM_NAMES[section],
+      SECTION_EXT[section],
+      entriesFor(section, folderPath),
+    );
     try {
       const path = joinPath(folderPath, name);
       await writeFileText(path, "");
       invalidate(folderPath);
       setRefresh((r) => r + 1);
       setExpanded((current) => ({ ...current, [folderPath]: true }));
-      setRenaming({ path, parentPath: folderPath, name, draft: name, isDir: false });
+      setRenaming({ path, parentPath: folderPath, name, draft: displayName(name), isDir: false });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
     }
   };
 
-  /** Create a new sub-category folder inside a category and start renaming it. */
+  /** Create a new sub-category folder inside a category (or another
+   *  sub-category — nesting is allowed at any depth) and start renaming it. */
   const addSubCategory = async (section: LibrarySectionId, folderPath: string) => {
     const name = uniqueFileName(DEFAULT_SUBCATEGORY_NAME, "", entriesFor(section, folderPath));
     try {
@@ -672,6 +683,8 @@ export function LibraryView() {
       await createDir(path);
       invalidate(folderPath);
       setRefresh((r) => r + 1);
+      // Make sure the parent is open, so the new folder is visible.
+      setExpanded((current) => ({ ...current, [folderPath]: true }));
       setRenaming({ path, parentPath: folderPath, name, draft: name, isDir: true });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
@@ -679,14 +692,25 @@ export function LibraryView() {
   };
 
   const startRename = (parentPath: string, path: string, name: string, isDir: boolean) =>
-    setRenaming({ path, parentPath, name, draft: name, isDir });
+    setRenaming({
+      path,
+      parentPath,
+      name,
+      // Files are listed (and renamed) without their part extension.
+      draft: isDir ? name : displayName(name),
+      isDir,
+    });
 
   const commitRename = async () => {
     if (!renaming) return;
     const { path, parentPath, name, draft, isDir } = renaming;
-    const newName = draft.trim();
+    const typed = draft.trim();
     setRenaming(null);
-    if (!newName || newName === name) return;
+    if (!typed) return;
+    // Renaming a file keeps its (hidden) extension unless a new one is typed.
+    const ext = isDir ? "" : hiddenExt(name);
+    const newName = !isDir && ext && !hiddenExt(typed) ? `${typed}${ext}` : typed;
+    if (newName === name) return;
     const newPath = joinPath(parentPath, newName);
     try {
       await renameEntry(path, newPath);
@@ -723,7 +747,7 @@ export function LibraryView() {
       invalidate(folderPath);
       setRefresh((r) => r + 1);
       setExpanded((current) => ({ ...current, [folderPath]: true }));
-      setRenaming({ path: joinPath(folderPath, name), parentPath: folderPath, name, draft: name, isDir: false });
+      setRenaming({ path: joinPath(folderPath, name), parentPath: folderPath, name, draft: displayName(name), isDir: false });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
     }
@@ -738,7 +762,7 @@ export function LibraryView() {
       invalidate(parentPath);
       setRefresh((r) => r + 1);
       setExpanded((current) => ({ ...current, [parentPath]: true }));
-      setRenaming({ path: joinPath(parentPath, newName), parentPath, name: newName, draft: newName, isDir: false });
+      setRenaming({ path: joinPath(parentPath, newName), parentPath, name: newName, draft: displayName(newName), isDir: false });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
     }
@@ -792,7 +816,7 @@ export function LibraryView() {
   };
 
   const entryMatches = (entry: FsEntry): boolean => {
-    if (matchesQuery(entry.name)) return true;
+    if (matchesQuery(displayName(entry.name))) return true;
     if (!entry.isDir) return false;
     const kids = children[entry.path];
     if (!kids) return false;
@@ -804,7 +828,7 @@ export function LibraryView() {
     parentPath: string,
     entry: FsEntry,
   ): ReactNode => {
-    if (isFiltering && !matchesQuery(entry.name)) return null;
+    if (isFiltering && !matchesQuery(displayName(entry.name))) return null;
     if (renaming?.path === entry.path) {
       return (
         <div className="library-item" key={entry.path}>
@@ -832,8 +856,7 @@ export function LibraryView() {
         onContextMenu={(e) =>
           openContextMenu(e, {
             kind: "part",
-            section,
-            path: entry.path,
+            section,            path: entry.path,
             parentPath,
             name: entry.name,
           })
@@ -842,7 +865,7 @@ export function LibraryView() {
         <span className="library-item-icon">
           <FileIcon />
         </span>
-        <span className="library-item-name">{entry.name}</span>
+        <span className="library-item-name">{displayName(entry.name)}</span>
       </div>
     );
   };
@@ -1059,7 +1082,7 @@ export function LibraryView() {
                   const entries = sectionEntries(section.id);
                   const visibleCount = isFiltering
                     ? entries.filter((entry) =>
-                        entry.isDir ? entryMatches(entry) : matchesQuery(entry.name),
+                        entry.isDir ? entryMatches(entry) : matchesQuery(displayName(entry.name)),
                       ).length
                     : entries.length;
                   const open = openSections[section.id] || isFiltering;
@@ -1222,6 +1245,17 @@ export function LibraryView() {
                   }}
                 >
                   New part
+                </button>
+                <button
+                  className="library-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    const { section, folderPath } = contextMenu;
+                    setContextMenu(null);
+                    void addSubCategory(section, folderPath);
+                  }}
+                >
+                  New sub-category
                 </button>
                 <div className="library-menu-sep" role="separator" />
                 <button

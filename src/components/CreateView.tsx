@@ -3,8 +3,9 @@ import { AppContext } from "../appContext";
 import { loadLibraries, subscribeLibraries, LIBRARY_SECTIONS } from "../settings";
 import type { LibraryEntry, LibrarySectionId } from "../settings";
 import { inTauri, listDir, createDir, copyEntry, writeFileText, openFile, joinPath } from "../fs";
+import type { FsEntry } from "../fs";
 import {
-  ITEM_EXT,
+  SECTION_EXT,
   SECTION_LABELS,
   PART_KIND,
   DEFAULT_ITEM_NAMES,
@@ -139,8 +140,9 @@ export function CreateView() {
 
   const library = libraries.find((lib) => lib.id === libraryId) ?? null;
 
-  // List the sub-category folders of the chosen category (creating the category
-  // folder itself if it does not exist yet).
+  // List the sub-category folders of the chosen category — including nested
+  // ones, shown as relative paths ("Passives/Resistors") — creating the
+  // category folder itself if it does not exist yet.
   useEffect(() => {
     if (!library?.path || !inTauri) {
       setSubCategories([]);
@@ -152,8 +154,24 @@ export function CreateView() {
       try {
         const categoryPath = joinPath(path, category);
         await createDir(categoryPath);
-        const entries = await listDir(categoryPath);
-        if (!cancelled) setSubCategories(entries.filter((entry) => entry.isDir).map((entry) => entry.name));
+        const found: string[] = [];
+        const walk = async (folder: string, prefix: string, depth: number): Promise<void> => {
+          if (depth > 8) return;
+          let entries: FsEntry[];
+          try {
+            entries = await listDir(folder);
+          } catch {
+            return;
+          }
+          for (const entry of entries) {
+            if (!entry.isDir) continue;
+            const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+            found.push(relative);
+            await walk(entry.path, relative, depth + 1);
+          }
+        };
+        await walk(categoryPath, "", 0);
+        if (!cancelled) setSubCategories(found);
       } catch {
         if (!cancelled) setSubCategories([]);
       }
@@ -175,10 +193,15 @@ export function CreateView() {
     setCreatedPath(null);
   };
 
+  /** Resolve a chosen sub-category ("a/b") inside the category folder. */
+  const folderWithin = (root: string, relative: string): string =>
+    relative
+      .split("/")
+      .filter(Boolean)
+      .reduce((acc, part) => joinPath(acc, part), root);
+
   const targetFolder = library?.path
-    ? subCategory
-      ? joinPath(joinPath(library.path, category), subCategory)
-      : joinPath(library.path, category)
+    ? folderWithin(joinPath(library.path, category), subCategory)
     : null;
 
   const showPins = category === "components" || category === "symbols";
@@ -205,7 +228,7 @@ export function CreateView() {
     try {
       await createDir(targetFolder);
       const existing = await listDir(targetFolder);
-      const path = joinPath(targetFolder, uniqueFileName(partName, ITEM_EXT, existing));
+      const path = joinPath(targetFolder, uniqueFileName(partName, SECTION_EXT[category], existing));
       await writeFileText(path, previewContent);
       setCreatedPath(path);
     } catch (err) {
@@ -260,7 +283,7 @@ export function CreateView() {
           Open in editor
         </button>
         <button className="btn" onClick={onAgain}>
-          New part
+          New item
         </button>
       </div>
     </div>
@@ -317,7 +340,9 @@ export function CreateView() {
             <div className="create-field">
               <label>File</label>
               <div className="create-success-path" title={targetFolder ?? ""}>
-                {targetFolder ? `${fileNameOf(targetFolder)}/${partName || "…"}${ITEM_EXT}` : "—"}
+                {targetFolder
+                  ? `${category}${subCategory ? `/${subCategory}` : ""}/${partName || "…"}${SECTION_EXT[category]}`
+                  : "—"}
               </div>
             </div>
             <pre className="create-preview">{previewContent}</pre>

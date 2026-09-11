@@ -143,6 +143,13 @@ fn open_in_file_manager(path: String) -> Result<(), String> {
     reveal_in_file_manager(&path)
 }
 
+/// Opens a URL — or any file — with the OS default application. Used by the
+/// Part editor for vendor part links and datasheets.
+#[tauri::command]
+fn open_external(target: String) -> Result<(), String> {
+    reveal_in_file_manager(&target)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -156,7 +163,8 @@ pub fn run() {
             rename_entry,
             delete_entry,
             copy_entry,
-            open_in_file_manager
+            open_in_file_manager,
+            open_external
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

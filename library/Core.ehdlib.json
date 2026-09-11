@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "Core",
+  "subCategories": {
+    "components/Passives": {
+      "icon": "capacitor"
+    }
+  },
+  "parts": {}
+}

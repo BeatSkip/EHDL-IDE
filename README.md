@@ -26,14 +26,20 @@ PCB. This repository is the native desktop application: a **Tauri 2** shell
 - **Inline schematic pane** — a build-time-generated tscircuit schematic (the
   tscircuit/WebView2 runtime issue is sidestepped by rendering a static SVG).
 - **Library manager** — register library folders (path + logical name). Each
-  library's **components / symbols / footprints / board snippets** are real
+  library's **components / symbols / footprints / board snippets / templates**
+  are real
   subfolders on disk; parts are the plain-text files in them, with search
   (comma-separated OR terms) and add/rename/copy/paste/duplicate/delete.
-  Categories can hold **sub-category folders** with their own icon, description
-  and notes, and per-library details live in `<library_name>.ehdlib.json`.
+  Categories can hold **sub-category folders** (nested to any depth) with their
+  own icon, description and notes, and per-library details live in
+  `<library_name>.ehdlib.json`.
 - **Create tab** — a dock tab next to *Library Manager*: build a part with a
   wizard (type, name, pins, review) or import an existing file into a library;
   AI generation is planned.
+- **Part editor** — component parts (`xxx.prt.ehd`) open in their own editor,
+  where the part is defined **either as VHDL text or through a graphical UI**:
+  part name, linked schematic symbols and footprints (each link can be
+  previewed), and preferred vendor part numbers, product links and datasheets.
 - **Settings** — General (theme, editor font size, word wrap), Library registry,
   **Keyboard Shortcuts** reference, and **Services** (accounts + API keys).
 
