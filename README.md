@@ -36,10 +36,11 @@ PCB. This repository is the native desktop application: a **Tauri 2** shell
 - **Create tab** — a dock tab next to *Library Manager*: build a part with a
   wizard (type, name, pins, review) or import an existing file into a library;
   AI generation is planned.
-- **Part editor** — component parts (`xxx.prt.ehd`) open in their own editor,
-  where the part is defined **either as VHDL text or through a graphical UI**:
-  part name, linked schematic symbols and footprints (each link can be
-  previewed), and preferred vendor part numbers, product links and datasheets.
+- **Part editor** — component parts (`xxx.prt.ehd`) are **VHDL component files**
+  (package, entity, architecture) per [docs/vhdl-implementation.md](docs/vhdl-implementation.md),
+  and open in their own editor: a graphical UI for ports, package variants with
+  pin maps and footprints, and metadata constants, or the VHDL source itself.
+  The library can be checked as a whole for spec problems.
 - **Settings** — General (theme, editor font size, word wrap), Library registry,
   **Keyboard Shortcuts** reference, and **Services** (accounts + API keys).
 

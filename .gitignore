@@ -16,6 +16,9 @@ lerna-debug.log*
 # npm cache (redirected into the workspace locally)
 .npm-cache/
 
+# compiled output of the VHDL parser tests (npm run test:vhdl)
+.tmp-vhdl-tests/
+
 # Playwright browser downloads (not used at runtime)
 .pw-browsers/
 

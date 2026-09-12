@@ -16,8 +16,39 @@ import {
   uniqueFileName,
 } from "../libraryFiles";
 import type { PartPin, PinDirection } from "../libraryFiles";
+import { emptyComponent, serializeComponent } from "../vhdlPart";
+import type { ComponentModel } from "../vhdlPart";
 
 type WizardStep = "basics" | "pins" | "review";
+
+/** VHDL port directions offered for components. */
+const COMPONENT_DIRECTIONS = ["in", "out", "inout"] as const;
+
+/**
+ * Turn the wizard's pins into a component model: one entity port per pin and a
+ * single `DEFAULT` package variant holding the pin numbers.
+ */
+function componentFromWizard(name: string, pins: PartPin[], description: string): ComponentModel {
+  const model = emptyComponent(name || "part");
+  model.ports = pins.map((pin) => ({
+    name: pin.name.trim() || `P${pin.number || "?"}`,
+    // VHDL has no "passive"/"power" directions — power pins read as inputs.
+    direction:
+      pin.direction === "power" ? "in" : pin.direction === "passive" ? "inout" : pin.direction,
+  }));
+  model.variants = [
+    {
+      name: "DEFAULT",
+      footprint: "",
+      pins: Object.fromEntries(
+        model.ports.map((port, index) => [port.name, Number(pins[index]?.number) || index + 1]),
+      ),
+    },
+  ];
+  model.defaultVariant = "DEFAULT";
+  if (description) model.metadata = [{ key: "DESCRIPTION", value: description }];
+  return model;
+}
 
 const STEP_LABELS: Record<WizardStep, string> = {
   basics: "Basics",
@@ -29,9 +60,12 @@ const STEP_LABELS: Record<WizardStep, string> = {
 function PinEditor({
   pins,
   onChange,
+  directions = PIN_DIRECTIONS,
 }: {
   pins: PartPin[];
   onChange: (pins: PartPin[]) => void;
+  /** Components use VHDL port directions; other kinds keep the wider list. */
+  directions?: readonly PinDirection[];
 }) {
   const patch = (index: number, next: Partial<PartPin>) =>
     onChange(pins.map((pin, i) => (i === index ? { ...pin, ...next } : pin)));
@@ -69,7 +103,7 @@ function PinEditor({
             value={pin.direction}
             onChange={(e) => patch(index, { direction: e.target.value as PinDirection })}
           >
-            {PIN_DIRECTIONS.map((direction) => (
+            {directions.map((direction) => (
               <option key={direction} value={direction}>
                 {direction}
               </option>
@@ -208,14 +242,24 @@ export function CreateView() {
   const sequence: WizardStep[] = showPins ? ["basics", "pins", "review"] : ["basics", "review"];
   const stepIndex = Math.max(0, sequence.indexOf(step));
   const partName = name.trim();
+  const validPins = pins.filter((pin) => pin.name.trim() || pin.number.trim());
 
-  const previewContent = buildPartContent({
-    kind: PART_KIND[category],
-    name: partName || DEFAULT_ITEM_NAMES[category],
-    description: description.trim(),
-    library: library?.name ?? "",
-    pins: showPins ? pins.filter((pin) => pin.name.trim() || pin.number.trim()) : [],
-  });
+  /**
+   * Components are VHDL component files (package + entity + architecture), per
+   * `docs/vhdl-implementation.md`: the wizard's pins become the entity ports and
+   * the pin map of a single `DEFAULT` package variant. Other categories still
+   * use the plain placeholder template.
+   */
+  const previewContent =
+    category === "components"
+      ? serializeComponent(componentFromWizard(partName, validPins, description.trim()))
+      : buildPartContent({
+          kind: PART_KIND[category],
+          name: partName || DEFAULT_ITEM_NAMES[category],
+          description: description.trim(),
+          library: library?.name ?? "",
+          pins: showPins ? validPins : [],
+        });
 
   const createPart = async () => {
     if (!targetFolder) return;
@@ -333,7 +377,13 @@ export function CreateView() {
           </>
         )}
 
-        {step === "pins" && <PinEditor pins={pins} onChange={setPins} />}
+        {step === "pins" && (
+          <PinEditor
+            pins={pins}
+            onChange={setPins}
+            directions={category === "components" ? COMPONENT_DIRECTIONS : undefined}
+          />
+        )}
 
         {step === "review" && (
           <>

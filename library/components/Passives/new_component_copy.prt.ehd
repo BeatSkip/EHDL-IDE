@@ -1,0 +1,27 @@
+-- EHDL component: new_component_copy
+library ieee;
+use ieee.std_logic_1164.all;
+
+package new_component_copy_pkg is
+  type new_component_copy_pin is ();
+  type pin_map is array (new_component_copy_pin) of natural;
+
+  constant new_component_copy_DEFAULT : pin_map := ();
+  constant new_component_copy_DEFAULT_FP : string := "";
+
+end package;
+
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity new_component_copy is
+  generic (
+    PACKAGE_VARIANT : string := "DEFAULT"
+  );
+  port (
+  );
+end entity;
+
+architecture rtl of new_component_copy is
+begin
+end architecture;

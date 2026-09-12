@@ -8,6 +8,7 @@
         "dev": "vite",
         "gen:schematic": "node scripts/generate-schematic.mjs",
         "build": "npm run gen:schematic && tsc && vite build",
+        "test:vhdl": "tsc src/vhdlPart.ts scripts/vhdl-part-tests.ts --outDir .tmp-vhdl-tests --module commonjs --target es2020 --lib es2020,dom --skipLibCheck && node scripts/run-vhdl-tests.cjs",
         "preview": "vite preview",
         "tauri": "tauri"
     },

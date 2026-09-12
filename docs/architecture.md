@@ -32,7 +32,8 @@ into the Rust commands (see `src/fs.ts` and `src-tauri/src/lib.rs`).
 | `settings.ts` | LocalStorage-backed stores: editor settings, library registry, service accounts (library contents are read from disk) |
 | `libraryMeta.ts` | Reads/writes the per-library manifest (`<library_name>.ehdlib.json`) |
 | `libraryFiles.ts` | Part file naming, per-category extensions and the plain-text part template |
-| `partFile.ts` | The provisional `xxx.prt.ehd` format (parse / serialize) |
+| `vhdlPart.ts` | The VHDL component format: parser, canonical writer and checks |
+| `componentLibrary.ts` | Component database: walks a library and reports spec problems |
 | `libraryIcons.tsx` | Icon set available to sub-categories |
 | `fs.ts` | Thin typed wrappers over the Tauri `invoke` commands |
 | `documents.ts`, `editorState.ts`, `editors.ts` | Open-document registry, per-file text store, live Monaco instance registry |
@@ -74,21 +75,33 @@ the other categories keep the `.txt` placeholder (`SECTION_EXT` in
 Component parts are `xxx.prt.ehd` files (`isPartFile`); opening one — from the
 library tree *or* the Create tab — mounts the **Part editor** dock tab instead
 of the text/schematic editor (`openFile` picks the tab component from the path).
-It offers the two ways of defining the same file:
 
-- **Graphical** — part name, description, linked schematic symbols and
-  footprints (each link can be previewed in a text pane or opened), and a table
-  of preferred vendor parts with product links and datasheets (`open_external`
-  opens those in the browser).
-- **VHDL** — the raw text, in Monaco.
+The file **is** the part definition and follows `vhdl-implementation.md`: a
+package (`<partname>_pkg`) with the pin enum, one `pin_map` constant per package
+variant plus its `*_FP` footprint constant and any extra metadata constants, an
+entity whose port names match the enum literals exactly, and an `rtl`
+architecture. `src/vhdlPart.ts` parses only that VHDL subset (never full VHDL)
+and writes the canonical form back.
 
-Linked paths are stored library-relative when they live inside the library.
-Both modes work on the provisional format in `partFile.ts` (`parsePart` /
-`serializePart`); unrecognised lines — a `pins:` block, comments — are kept in
-`extra` and written back, so hand-written text survives a graphical save. The
-real definition language and backend are still to be chosen. Symbol files
-(`.sym.ehd`) open in the normal text editor — the symbol editor is not written
-yet.
+- **Graphical** — part name, ports (name + direction), package variants (name,
+  IPC-7351 footprint and a pin number per port) and metadata constants such as
+  `MFR`/`PARTNUM`; values that are URLs open in the browser (`open_external`),
+  paths are previewed. The right-hand **Check** panel lists the spec's errors
+  and warnings for the file, including the required wording of §10 Test 3.
+- **VHDL** — the raw source in Monaco.
+
+Comments are kept (re-emitted at the top of the file) and the architecture body
+is preserved verbatim, so a graphical save doesn't throw hand-written text away.
+Symbol files (`.sym.ehd`) still open in the normal text editor — the symbol
+editor is not written yet.
+
+The library's components folder can be validated as a whole (the ✓ button in the
+library toolbar): `src/componentLibrary.ts` walks it recursively, parses every
+component and reports the problems from §5.3, including
+`Duplicate entity 'X' in files a and b`.
+
+The elaboration, netlist and BOM stages (Phases 3–5 of the spec) are not
+implemented yet.
 
 ### Create panel
 

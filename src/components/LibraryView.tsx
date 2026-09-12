@@ -13,6 +13,7 @@ import {
   deleteEntry,
   copyEntry,
   writeFileText,
+  readFileText,
   joinPath,
 } from "../fs";
 import type { FsEntry } from "../fs";
@@ -38,6 +39,9 @@ import {
   emptyLibraryMeta,
 } from "../libraryMeta";
 import type { LibraryMeta, SubCategoryMeta } from "../libraryMeta";
+import { emptyComponent, serializeComponent } from "../vhdlPart";
+import { loadComponentDatabase } from "../componentLibrary";
+import type { LibraryIssue } from "../componentLibrary";
 import { PanelDialog } from "./PanelDialog";
 
 /** The category folders every library exposes, in display order. */
@@ -125,6 +129,14 @@ function InfoIcon() {
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
       <circle cx="8" cy="8" r="5.8" />
       <path d="M8 7.2v4M8 4.9v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M2.5 8.5l4 4 7-9" />
     </svg>
   );
 }
@@ -316,6 +328,12 @@ export function LibraryView() {
   const [renaming, setRenaming] = useState<Renaming | null>(null);
   const [detailsFor, setDetailsFor] = useState<DetailsTarget | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const [checkResult, setCheckResult] = useState<{
+    fileCount: number;
+    componentCount: number;
+    issues: LibraryIssue[];
+  } | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const addWrapRef = useRef<HTMLDivElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -664,7 +682,11 @@ export function LibraryView() {
     );
     try {
       const path = joinPath(folderPath, name);
-      await writeFileText(path, "");
+      // Components start from a valid VHDL component file, so they can be
+      // opened in the Part editor straight away.
+      const content =
+        section === "components" ? serializeComponent(emptyComponent(splitName(name).base)) : "";
+      await writeFileText(path, content);
       invalidate(folderPath);
       setRefresh((r) => r + 1);
       setExpanded((current) => ({ ...current, [folderPath]: true }));
@@ -806,8 +828,29 @@ export function LibraryView() {
     }
   };
 
-  const openLibraryFolder = async () => {
-    if (!libPath) return;
+  /**
+   * Parse every component file of this library and report the spec's problems
+   * (missing constructs, port/pin-map mismatches, duplicate entities).
+   */
+  const runLibraryCheck = async () => {
+    const componentsPath = libraryData?.components?.path;
+    if (!componentsPath || checking) return;
+    setChecking(true);
+    try {
+      const database = await loadComponentDatabase(componentsPath, readFileText);
+      setCheckResult({
+        fileCount: database.fileCount,
+        componentCount: database.components.length,
+        issues: database.issues,
+      });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const openLibraryFolder = async () => {    if (!libPath) return;
     try {
       await openInFileManager(libPath);
     } catch (err) {
@@ -1010,6 +1053,16 @@ export function LibraryView() {
                 onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
               >
                 <SearchIcon />
+              </button>
+
+              <button
+                className="library-icon-btn"
+                title="Check the library — parse every component file"
+                aria-label="Check the library"
+                disabled={!usable || checking}
+                onClick={() => void runLibraryCheck()}
+              >
+                <CheckIcon />
               </button>
 
               <button
@@ -1390,6 +1443,43 @@ export function LibraryView() {
           onSave={saveLibraryDetails}
           onClose={() => setDetailsFor(null)}
         />
+      )}
+
+      {/* Component-database check: every component file parsed, spec problems listed */}
+      {checkResult && (
+        <PanelDialog
+          wide
+          title={`Library check — ${selected?.name || "library"}`}
+          onClose={() => setCheckResult(null)}
+          actions={
+            <button className="btn" onClick={() => setCheckResult(null)}>
+              Close
+            </button>
+          }
+        >
+          <p className="panel-dialog-text">
+            {checkResult.componentCount} component
+            {checkResult.componentCount === 1 ? "" : "s"} parsed from {checkResult.fileCount} file
+            {checkResult.fileCount === 1 ? "" : "s"} ·{" "}
+            {checkResult.issues.filter((issue) => issue.severity === "error").length} error
+            {checkResult.issues.filter((issue) => issue.severity === "error").length === 1 ? "" : "s"}
+            ,{" "}
+            {checkResult.issues.filter((issue) => issue.severity === "warning").length} warning
+            {checkResult.issues.filter((issue) => issue.severity === "warning").length === 1 ? "" : "s"}
+          </p>
+          {checkResult.issues.length === 0 ? (
+            <p className="part-ok">No problems found — the library matches the component spec.</p>
+          ) : (
+            <ul className="library-check-list">
+              {checkResult.issues.map((issue, index) => (
+                <li key={`${issue.file}-${issue.message}-${index}`} className={issue.severity}>
+                  <span className="library-check-file">{issue.file}</span>
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </PanelDialog>
       )}
 
       {/* Confirmation before deleting a sub-category that holds parts */}
