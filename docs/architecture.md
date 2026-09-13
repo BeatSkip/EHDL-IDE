@@ -29,6 +29,7 @@ into the Rust commands (see `src/fs.ts` and `src-tauri/src/lib.rs`).
 | --- | --- |
 | `App.tsx` | Root layout: title bar, menu bar, dock (flexlayout), status bar; window-drag handling, editor split/move actions |
 | `main.tsx` | Entry point: Monaco/flexlayout/global CSS, splash fade-out, disabled native context menu |
+| `recentFiles.ts` | LocalStorage list of recently opened files (Welcome view) |
 | `settings.ts` | LocalStorage-backed stores: editor settings, library registry, service accounts (library contents are read from disk) |
 | `libraryMeta.ts` | Reads/writes the per-library manifest (`<library_name>.ehdlib.json`) |
 | `libraryFiles.ts` | Part file naming, per-category extensions and the plain-text part template |

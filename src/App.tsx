@@ -6,6 +6,7 @@ import {
   BorderNode,
   DockLocation,
   IJsonModel,
+  IJsonTabNode,
   Layout,
   Model,
   Node,
@@ -30,10 +31,12 @@ import type { ActivityId } from "./components/ActivityBar";
 import { LibraryView } from "./components/LibraryView";
 import { CreateView } from "./components/CreateView";
 import { PartEditor } from "./components/PartEditor";
+import { WelcomeView } from "./components/WelcomeView";
 import { SettingsModal } from "./components/SettingsModal";
 import type { Menu } from "./components/MenuBar";
 import { AppContext } from "./appContext";
 import type { AppState, ProjectState } from "./appContext";
+import { rememberRecentFile } from "./recentFiles";
 
 // ---- panel components ----
 
@@ -50,6 +53,15 @@ const schematicSplitRatios = new Map<string, number>();
 /** Tab components that host an open document (text editor or part editor). */
 const isDocumentComponent = (component: string | undefined): boolean =>
   component === "editor" || component === "part";
+
+/** How many documents are open in the dock (0 → the Welcome view is shown). */
+const countDocumentTabs = (m: Model): number => {
+  let count = 0;
+  m.visitNodes((node: Node) => {
+    if (node.getType() === "tab" && isDocumentComponent((node as TabNode).getComponent())) count += 1;
+  });
+  return count;
+};
 
 /** The left dock: switches its content based on the activity bar.
  *  (Settings no longer lives here — it opens as a modal instead.) */
@@ -146,6 +158,8 @@ const factory = (node: TabNode) => {
       return <EditorPane fileId={node.getConfig()?.fileId} />;
     case "part":
       return <PartEditor fileId={node.getConfig()?.fileId} />;
+    case "welcome":
+      return <WelcomeView />;
     case "properties":
       return <PropertiesTab />;
     default:
@@ -165,6 +179,7 @@ const DEFAULT_JSON: IJsonModel = {
   borders: [],
   layout: {
     type: "row",
+    id: "root-row",
     children: [
       {
         type: "tabset",
@@ -178,6 +193,10 @@ const DEFAULT_JSON: IJsonModel = {
         type: "tabset",
         id: "editor-tabset",
         weight: 100,
+        // Keep the editor group alive when its last tab closes: the Welcome
+        // overview is added to it instead, so no group is created or destroyed
+        // and every panel keeps its exact width.
+        enableDeleteWhenEmpty: false,
         children: [
           {
             id: "editor-top",
@@ -252,6 +271,7 @@ export default function App() {
   const [activity, setActivity] = useState<ActivityId>("explorer");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const model = useMemo(() => Model.fromJson(DEFAULT_JSON), []);
+  const [documentCount, setDocumentCount] = useState(() => countDocumentTabs(model));
 
   const activeEditorTsRef = useRef<string>("editor-tabset");
 
@@ -284,6 +304,31 @@ export default function App() {
     if (hasCreate) model.doAction(Actions.deleteTab("create-tab"));
   }, [activity, model]);
 
+  // With no document open, the editor area shows the Welcome overview (like
+  // VS Code): start a project, open a folder/file, or reopen a recent file.
+  useEffect(() => {
+    const hasWelcome = !!model.getNodeById("welcome-tab");
+    if (documentCount > 0) {
+      if (hasWelcome) model.doAction(Actions.deleteTab("welcome-tab"));
+      return;
+    }
+    if (hasWelcome) return;
+    // The editor group is kept alive when its last tab closes
+    // (enableDeleteWhenEmpty: false), so the Welcome overview simply takes the
+    // freed slot in the very same group — nothing is created or resized. If the
+    // group is gone (documents were moved elsewhere), build it again.
+    const hasEditorGroup = !!model.getNodeById("editor-tabset");
+    model.doAction(
+      Actions.addTab(
+        { id: "welcome-tab", type: "tab", component: "welcome", name: "Welcome", enableClose: false },
+        hasEditorGroup ? "editor-tabset" : "project-tabset",
+        hasEditorGroup ? DockLocation.CENTER : DockLocation.RIGHT,
+        -1,
+        true,
+      ),
+    );
+  }, [documentCount, model]);
+
   /** Find the open document tab (text editor or part editor) for a file id. */
   const findOpenFileTab = (m: Model, fileId: string): TabNode | undefined => {
     let found: TabNode | undefined;
@@ -309,25 +354,34 @@ export default function App() {
 
     const path = docPath(id);
     const component = path && isPartFile(path) ? "part" : "editor";
+    const tabId = `${component}-${id}`;
+    const tab: IJsonTabNode = {
+      id: tabId,
+      type: "tab",
+      component,
+      name: docName(id),
+      enableClose: true,
+      config: { fileId: id },
+    };
 
-    const targetId = model.getNodeById(activeEditorTsRef.current) ? activeEditorTsRef.current : "editor-tabset";
-    model.doAction(
-      Actions.addTab(
-        {
-          id: `${component}-${id}`,
-          type: "tab",
-          component,
-          name: docName(id),
-          enableClose: true,
-          config: { fileId: id },
-        },
-        targetId,
-        DockLocation.CENTER,
-        -1,
-        true,
-      ),
-    );
-    activeEditorTsRef.current = targetId;
+    const targetId = model.getNodeById(activeEditorTsRef.current)
+      ? activeEditorTsRef.current
+      : model.getNodeById("editor-tabset")
+        ? "editor-tabset"
+        : null;
+
+    if (targetId) {
+      model.doAction(Actions.addTab(tab, targetId, DockLocation.CENTER, -1, true));
+      activeEditorTsRef.current = targetId;
+      return;
+    }
+
+    // Every open document was closed, so flexlayout removed the editor tabset.
+    // Adding a tab to the side of the sidebar creates a fresh editor group in
+    // the middle of the layout (only reachable if the persistent editor group
+    // was removed, e.g. by dragging its tabs elsewhere).
+    model.doAction(Actions.addTab(tab, "project-tabset", DockLocation.RIGHT, -1, true));
+    activeEditorTsRef.current = "editor-tabset";
   };
 
   /** Read a real file from disk, register it, and open it in the editor. */
@@ -342,6 +396,7 @@ export default function App() {
       const content = await readFileText(path);
       registerRealDoc(id, { name: baseName(path), path });
       setEditorText(id, content);
+      rememberRecentFile(path, baseName(path));
       openFile(id);
     } catch (error) {
       console.error("Failed to open file:", path, error);
@@ -363,8 +418,15 @@ export default function App() {
   const openFolderProject = async () => {
     if (!inTauri) return;
     const path = await openFolder();
-    if (path) {
-      setProject({ kind: "folder", rootPath: path, rootName: baseName(path) });
+    if (path) openProjectFolder(path);
+  };
+
+  /** Make a folder the current project and bring the explorer forward. */
+  const openProjectFolder = (path: string) => {
+    setProject({ kind: "folder", rootPath: path, rootName: baseName(path) });
+    setActivity("explorer");
+    if (model.getNodeById("project-tab")) {
+      model.doAction(Actions.selectTab("project-tab"));
     }
   };
 
@@ -421,6 +483,7 @@ export default function App() {
       activity,
       setActivity,
       openFolderProject,
+      openProjectFolder,
       openFile,
       openFsPath,
       saveFile,
@@ -428,7 +491,7 @@ export default function App() {
       toggleInlineSchematic,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeFileId, project, activity, inlineSchematicFileId, openFile, openFsPath, saveFile, openFolderProject, toggleInlineSchematic],
+    [activeFileId, project, activity, inlineSchematicFileId, openFile, openFsPath, saveFile, openFolderProject, openProjectFolder, toggleInlineSchematic],
   );
 
   // Keep active-file + active editor group in sync (tab clicks, splits...).
@@ -445,6 +508,18 @@ export default function App() {
       }
     });
     if (activeFile) setActiveFileId(activeFile);
+    const count = countDocumentTabs(m);
+    setDocumentCount(count);
+
+    // The editor group is kept alive when emptied so the Welcome overview can
+    // take its place with no layout change. If documents are still open in
+    // other groups (a split moved them out), don't leave an empty group behind.
+    if (count > 0) {
+      const main = m.getNodeById("editor-tabset");
+      if (main instanceof TabSetNode && main.getChildren().length === 0) {
+        m.doAction(Actions.deleteTabset("editor-tabset"));
+      }
+    }
   };
 
   // True for every editor tab set — including ones created by splitting/moving,

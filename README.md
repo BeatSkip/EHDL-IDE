@@ -41,6 +41,9 @@ PCB. This repository is the native desktop application: a **Tauri 2** shell
   and open in their own editor: a graphical UI for ports, package variants with
   pin maps and footprints, and metadata constants, or the VHDL source itself.
   The library can be checked as a whole for spec problems.
+- **Welcome overview** — with no document open, the editor area shows a
+  VS Code-style overview: create a new project, open an existing folder, open a
+  file, or reopen one of the recent files.
 - **Settings** — General (theme, editor font size, word wrap), Library registry,
   **Keyboard Shortcuts** reference, and **Services** (accounts + API keys).
 

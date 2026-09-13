@@ -16,6 +16,8 @@ export interface AppState {
   activity: ActivityId;
   setActivity: (id: ActivityId) => void;
   openFolderProject: () => Promise<void>;
+  /** Make a folder the current project (Welcome view / "Open folder"). */
+  openProjectFolder: (path: string) => void;
   /** Open a sample/document id that is already registered (content loaded). */
   openFile: (id: string) => void;
   /** Open a real file from disk (reads + registers it first). */
@@ -32,6 +34,7 @@ export const AppContext = createContext<AppState>({
   activity: "explorer",
   setActivity: () => {},
   openFolderProject: async () => {},
+  openProjectFolder: () => {},
   openFile: () => {},
   openFsPath: async () => {},
   saveFile: async () => {},
