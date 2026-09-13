@@ -1,0 +1,3 @@
+refdes,entity,variant,manufacturer,part_number,footprint,qty
+U1,LM358,SOIC8,Texas Instruments,LM358DR,SOIC127P600X175-8N,1
+U2,LM358,DIP8,Texas Instruments,LM358DR,DIP762W60P254L940H508Q8N,1

@@ -43,6 +43,8 @@ import { emptyComponent, serializeComponent } from "../vhdlPart";
 import { loadComponentDatabase } from "../componentLibrary";
 import type { LibraryIssue } from "../componentLibrary";
 import { PanelDialog } from "./PanelDialog";
+import { findProjectLibraries } from "../projectLibraries";
+import type { ProjectLibrary } from "../projectLibraries";
 
 /** The category folders every library exposes, in display order. */
 const SECTIONS: { id: LibrarySectionId; label: string }[] = LIBRARY_SECTIONS.map((id) => ({
@@ -301,9 +303,11 @@ function LibraryDetailsDialog({
  * live in `<library_name>.ehdlib.json` in the library's top folder.
  */
 export function LibraryView() {
-  const { openFsPath } = useContext(AppContext);
+  const { openFsPath, project } = useContext(AppContext);
 
   const [libraries, setLibraries] = useState<LibraryEntry[]>(() => loadLibraries());
+  /** Library folders found inside the opened project (see projectLibraries.ts). */
+  const [projectLibraries, setProjectLibraries] = useState<ProjectLibrary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [libraryData, setLibraryData] = useState<LibraryData | null>(null);
@@ -340,7 +344,17 @@ export function LibraryView() {
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const lastPathRef = useRef<string | null>(null);
 
-  const selected = libraries.find((lib) => lib.id === selectedId) ?? null;
+  /** Project libraries first, then the ones configured in Settings → Library. */
+  const allLibraries: LibraryEntry[] = [
+    ...projectLibraries.map((library) => ({
+      id: library.id,
+      name: library.name,
+      path: library.path,
+    })),
+    ...libraries,
+  ];
+
+  const selected = allLibraries.find((lib) => lib.id === selectedId) ?? null;
   const libPath = selected?.path ?? null;
   const usable = inTauri && !!libPath && !!libraryData;
 
@@ -372,13 +386,34 @@ export function LibraryView() {
   // Stay in sync when libraries are added/removed/renamed in the Settings modal.
   useEffect(() => subscribeLibraries(setLibraries), []);
 
-  // Keep the selection valid: follow the first library until one is chosen.
+  // Keep the selection valid: follow the first library until one is chosen. A
+  // project library sorts first, so opening the panel inside a project shows
+  // that project's own parts straight away.
   useEffect(() => {
     setSelectedId((current) => {
-      if (current && libraries.some((lib) => lib.id === current)) return current;
-      return libraries.length > 0 ? libraries[0].id : null;
+      if (current && allLibraries.some((lib) => lib.id === current)) return current;
+      return allLibraries.length > 0 ? allLibraries[0].id : null;
     });
-  }, [libraries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libraries, projectLibraries]);
+
+  // Look for a library folder inside the opened project.
+  useEffect(() => {
+    if (!inTauri || project.kind !== "folder") {
+      setProjectLibraries([]);
+      return;
+    }
+    const rootPath = project.rootPath;
+    const rootName = project.rootName;
+    let cancelled = false;
+    void (async () => {
+      const found = await findProjectLibraries(rootPath, rootName);
+      if (!cancelled) setProjectLibraries(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project, refresh]);
 
   // While filtering, open every category so the matches are visible.
   useEffect(() => {
@@ -1007,6 +1042,11 @@ export function LibraryView() {
                 value={selectedId ?? ""}
                 onChange={(e) => selectLibrary(e.target.value)}
               >
+                {projectLibraries.map((library) => (
+                  <option key={library.id} value={library.id} title={library.path}>
+                    {library.label}
+                  </option>
+                ))}
                 {libraries.map((lib) => (
                   <option key={lib.id} value={lib.id} title={lib.path || "no folder set"}>
                     {lib.name || "(unnamed)"}

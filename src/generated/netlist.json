@@ -1,0 +1,112 @@
+{
+  "components": [
+    {
+      "refdes": "U1",
+      "entity": "LM358",
+      "variant": "SOIC8",
+      "footprint": "SOIC127P600X175-8N",
+      "pins": {
+        "IN_P": 3,
+        "IN_N": 2,
+        "OUT": 1,
+        "VCC": 8,
+        "GND": 4
+      }
+    },
+    {
+      "refdes": "U2",
+      "entity": "LM358",
+      "variant": "DIP8",
+      "footprint": "DIP762W60P254L940H508Q8N",
+      "pins": {
+        "IN_P": 3,
+        "IN_N": 2,
+        "OUT": 1,
+        "VCC": 8,
+        "GND": 4
+      }
+    }
+  ],
+  "nets": [
+    {
+      "name": "A",
+      "connections": [
+        {
+          "refdes": "U1",
+          "pin": 3,
+          "port": "IN_P"
+        }
+      ]
+    },
+    {
+      "name": "B",
+      "connections": [
+        {
+          "refdes": "U1",
+          "pin": 2,
+          "port": "IN_N"
+        },
+        {
+          "refdes": "U2",
+          "pin": 2,
+          "port": "IN_N"
+        }
+      ]
+    },
+    {
+      "name": "GND",
+      "connections": [
+        {
+          "refdes": "U1",
+          "pin": 4,
+          "port": "GND"
+        },
+        {
+          "refdes": "U2",
+          "pin": 4,
+          "port": "GND"
+        }
+      ]
+    },
+    {
+      "name": "n1",
+      "connections": [
+        {
+          "refdes": "U1",
+          "pin": 1,
+          "port": "OUT"
+        },
+        {
+          "refdes": "U2",
+          "pin": 3,
+          "port": "IN_P"
+        }
+      ]
+    },
+    {
+      "name": "VCC",
+      "connections": [
+        {
+          "refdes": "U1",
+          "pin": 8,
+          "port": "VCC"
+        },
+        {
+          "refdes": "U2",
+          "pin": 8,
+          "port": "VCC"
+        }
+      ]
+    },
+    {
+      "name": "Y",
+      "connections": [
+        {
+          "refdes": "U2",
+          "pin": 1,
+          "port": "OUT"
+        }
+      ]
+    }
+  ]
+}

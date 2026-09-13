@@ -19,6 +19,9 @@ lerna-debug.log*
 # compiled output of the VHDL parser tests (npm run test:vhdl)
 .tmp-vhdl-tests/
 
+# compiled VHDL helpers used by the schematic generator
+.tmp-schematic/
+
 # Playwright browser downloads (not used at runtime)
 .pw-browsers/
 

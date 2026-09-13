@@ -218,6 +218,7 @@ export function WelcomeView() {
               type="text"
               spellCheck={false}
               autoFocus
+              onFocus={(e) => e.currentTarget.select()}
               value={newProject.name}
               onChange={(e) =>
                 setNewProject((current) => (current ? { ...current, name: e.target.value } : current))
