@@ -15,6 +15,7 @@ export function PanelDialog({
   onClose,
   onConfirm,
   wide,
+  className,
 }: {
   title: string;
   children: ReactNode;
@@ -27,6 +28,8 @@ export function PanelDialog({
   onConfirm?: () => void;
   /** A little wider — used for the icon grid. */
   wide?: boolean;
+  /** Extra class for a specific dialog (e.g. an extra-wide layout). */
+  className?: string;
 }) {
   /**
    * Only a press that *starts* on the backdrop dismisses the dialog. A click
@@ -66,7 +69,7 @@ export function PanelDialog({
       }}
     >
       <div
-        className={`panel-dialog ${wide ? "panel-dialog-wide" : ""}`}
+        className={`panel-dialog ${wide ? "panel-dialog-wide" : ""} ${className ?? ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

@@ -65,3 +65,20 @@ export async function findProjectLibraries(
 
   return found;
 }
+
+/**
+ * A library the project explorer asked the Library Manager to show. The
+ * explorer only switches the activity bar; the Library Manager is mounted a
+ * moment later and picks the request up once its scan has finished.
+ */
+let pendingLibraryPath: string | null = null;
+
+export function requestLibrary(path: string): void {
+  pendingLibraryPath = path;
+}
+
+export function takePendingLibrary(): string | null {
+  const path = pendingLibraryPath;
+  pendingLibraryPath = null;
+  return path;
+}

@@ -1,0 +1,6 @@
+name       = SOIC127P600X175-8N
+family     = dual
+density    = nominal
+pads       = 8
+courtyard  = 7.2 x 4.97
+ipcName    = SOIC127P600X175-8N

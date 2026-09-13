@@ -9,6 +9,7 @@
         "gen:schematic": "tsc src/vhdlPart.ts src/vhdlDesign.ts src/elaborate.ts --outDir .tmp-schematic --rootDir . --module commonjs --target es2020 --lib es2020,dom --skipLibCheck && node scripts/generate-schematic.mjs --lib examples/sample-project/components --top examples/sample-project/src/board.vhd --out src/generated",
         "build": "npm run gen:schematic && tsc && vite build",
         "test:vhdl": "tsc src/vhdlPart.ts scripts/vhdl-part-tests.ts --outDir .tmp-vhdl-tests --module commonjs --target es2020 --lib es2020,dom --skipLibCheck && node scripts/run-vhdl-tests.cjs",
+        "gen:footprint": "tsc src/ipcFootprint.ts --outDir .tmp-footprint --rootDir . --module commonjs --target es2020 --lib es2020,dom --skipLibCheck && node scripts/generate-footprint.mjs",
         "preview": "vite preview",
         "tauri": "tauri"
     },

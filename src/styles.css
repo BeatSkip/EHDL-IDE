@@ -1572,6 +1572,11 @@ body {
   width: min(460px, 100%);
 }
 
+/* the footprint wizard needs room for two columns of fields plus the preview */
+.panel-dialog-xwide {
+  width: min(780px, 100%);
+}
+
 .panel-dialog-title {
   margin-bottom: 12px;
   font-size: 13px;
@@ -1669,6 +1674,98 @@ body {
 .btn-danger:hover:not(:disabled) {
   background: rgba(244, 135, 113, 0.12);
   border-color: #f48771;
+}
+
+/* ---- IPC footprint wizard ---- */
+
+.fp-layout {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.fp-form {
+  flex: 1 1 380px;
+  min-width: 0;
+  display: grid;
+  /* two columns so the whole wizard fits without scrolling */
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  align-content: start;
+}
+
+/* fields written as <label class="panel-dialog-field"><span>…</span><input/></label> */
+.panel-dialog-field > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.fp-preview {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.fp-name {
+  color: var(--fg-bright);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11.5px;
+  text-align: center;
+  word-break: break-all;
+}
+
+.fp-svg {
+  padding: 4px;
+  background: #111111;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+}
+
+.fp-svg .fp-pad {
+  fill: #c9a227;
+  stroke: #f0d060;
+  stroke-width: 0.5;
+}
+
+.fp-svg .fp-pad-thermal {
+  fill: #8a6f1d;
+}
+
+.fp-svg .fp-hole {
+  fill: #111111;
+  stroke: #666666;
+  stroke-width: 0.5;
+}
+
+.fp-svg .fp-courtyard {
+  fill: none;
+  stroke: #5a5a5a;
+  stroke-width: 0.7;
+  stroke-dasharray: 3 2;
+}
+
+.fp-svg .fp-silk {
+  fill: none;
+  stroke: #dddddd;
+  stroke-width: 0.8;
+}
+
+.fp-svg .fp-pad-label {
+  fill: #1a1a1a;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 7px;
+  text-anchor: middle;
+}
+
+.fp-meta {
+  color: var(--fg-dim);
+  font-size: 10.5px;
+  text-align: center;
 }
 
 /* ---- Project explorer: selection, nested menu items, notes ---- */

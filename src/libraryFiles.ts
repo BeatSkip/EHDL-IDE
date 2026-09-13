@@ -10,18 +10,19 @@
 
 import type { FsEntry } from "./fs";
 import type { LibrarySectionId } from "./settings";
+import { FOOTPRINT_EXT } from "./ipcFootprint";
 
 /**
  * Extension used for the part files of each category.
  *
- * Components are `.prt.ehd` (edited by the Part editor). Symbols will be
- * `.sym.ehd` once the symbol editor exists; the remaining categories keep the
- * plain `.txt` placeholder until their formats are decided.
+ * Components are `.prt.ehd` (Part editor), symbols `.sym.ehd`, footprints
+ * `.fpt.ehd` (IPC footprint wizard); the remaining categories keep the plain
+ * `.txt` placeholder until their formats are decided.
  */
 export const SECTION_EXT: Record<LibrarySectionId, string> = {
   components: ".prt.ehd",
   symbols: ".sym.ehd",
-  footprints: ".txt",
+  footprints: FOOTPRINT_EXT,
   "board-snippets": ".txt",
   templates: ".txt",
 };
@@ -39,7 +40,7 @@ export function isPartFile(path: string): boolean {
  * the file is, so `mosfet_n.prt.ehd` is listed as `mosfet_n`. Anything with an
  * unknown extension (an imported `.kicad_mod`, say) keeps it.
  */
-const HIDDEN_EXTS = [PART_EXT, ".sym.ehd", ".txt"];
+const HIDDEN_EXTS = [PART_EXT, ".sym.ehd", FOOTPRINT_EXT, ".txt"];
 
 /** The hidden extension of a file name, or "" when it has none. */
 export function hiddenExt(name: string): string {

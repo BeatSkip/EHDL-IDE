@@ -43,7 +43,8 @@ import { emptyComponent, serializeComponent } from "../vhdlPart";
 import { loadComponentDatabase } from "../componentLibrary";
 import type { LibraryIssue } from "../componentLibrary";
 import { PanelDialog } from "./PanelDialog";
-import { findProjectLibraries } from "../projectLibraries";
+import { findProjectLibraries, requestLibrary, takePendingLibrary } from "../projectLibraries";
+import { FootprintWizard } from "./FootprintWizard";
 import type { ProjectLibrary } from "../projectLibraries";
 
 /** The category folders every library exposes, in display order. */
@@ -338,6 +339,8 @@ export function LibraryView() {
     issues: LibraryIssue[];
   } | null>(null);
   const [checking, setChecking] = useState(false);
+  /** The IPC footprint wizard is open (footprints are generated, not blank). */
+  const [footprintWizard, setFootprintWizard] = useState(false);
 
   const addWrapRef = useRef<HTMLDivElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -414,6 +417,17 @@ export function LibraryView() {
       cancelled = true;
     };
   }, [project, refresh]);
+
+  // Opened from the project explorer (double-clicking a library folder):
+  // select that library once it appears in the list.
+  useEffect(() => {
+    const pending = takePendingLibrary();
+    if (!pending) return;
+    const match = allLibraries.find((lib) => lib.path === pending);
+    if (match) setSelectedId(match.id);
+    else requestLibrary(pending); // the project scan may still be running
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectLibraries, libraries]);
 
   // While filtering, open every category so the matches are visible.
   useEffect(() => {
@@ -710,6 +724,11 @@ export function LibraryView() {
 
   /** Create a new part file in a folder and start renaming it. */
   const addPart = async (section: LibrarySectionId, folderPath: string) => {
+    // Footprints are built by the IPC wizard rather than from a blank template.
+    if (section === "footprints") {
+      setFootprintWizard(true);
+      return;
+    }
     const name = uniqueFileName(
       DEFAULT_ITEM_NAMES[section],
       SECTION_EXT[section],
@@ -1520,6 +1539,19 @@ export function LibraryView() {
             </ul>
           )}
         </PanelDialog>
+      )}
+
+      {/* IPC footprint wizard — the library manager's way to add a footprint */}
+      {footprintWizard && libPath && (
+        <FootprintWizard
+          libraryPath={libPath}
+          onClose={() => setFootprintWizard(false)}
+          onCreated={(path) => {
+            setFootprintWizard(false);
+            setRefresh((r) => r + 1);
+            void openFsPath(path);
+          }}
+        />
       )}
 
       {/* Confirmation before deleting a sub-category that holds parts */}

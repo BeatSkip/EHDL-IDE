@@ -1,0 +1,27 @@
+-- EHDL component: LM2596S
+library ieee;
+use ieee.std_logic_1164.all;
+
+package lm2596s_pkg is
+  type lm2596s_pin is ();
+  type pin_map is array (lm2596s_pin) of natural;
+
+  constant LM2596S_DEFAULT : pin_map := ();
+  constant LM2596S_DEFAULT_FP : string := "";
+
+end package;
+
+library ieee;
+use ieee.std_logic_1164.all;
+
+entity LM2596S is
+  generic (
+    PACKAGE_VARIANT : string := "DEFAULT"
+  );
+  port (
+  );
+end entity;
+
+architecture rtl of LM2596S is
+begin
+end architecture;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import {
@@ -25,11 +25,32 @@ import {
   isBoardFile,
   serializeBoardFile,
 } from "../boardFile";
+import { emptyComponent, serializeComponent } from "../vhdlPart";
 import { PanelDialog } from "./PanelDialog";
-import { findProjectLibraries } from "../projectLibraries";
+import { FootprintWizard } from "./FootprintWizard";
+import { findProjectLibraries, requestLibrary } from "../projectLibraries";
+import { AppContext } from "../appContext";
 
 /** What the "Create" submenu can add. */
-type CreateKind = "schematic" | "library" | "board" | "symbol" | "footprint" | "board-snippet";
+type CreateKind =
+  | "schematic"
+  | "library"
+  | "board"
+  | "component"
+  | "symbol"
+  | "footprint"
+  | "board-snippet";
+
+/** Dialog titles per kind. */
+const CREATE_TITLES: Record<CreateKind, string> = {
+  schematic: "New schematic file",
+  library: "New library folder",
+  board: "New board file",
+  component: "New component",
+  symbol: "New symbol",
+  footprint: "New footprint part",
+  "board-snippet": "New board snippet",
+};
 
 const CREATE_ITEMS: { kind: CreateKind; label: string; hint: string }[] = [
   { kind: "schematic", label: "Schematic file", hint: "VHDL design — entity + architecture" },
@@ -42,6 +63,11 @@ const CREATE_ITEMS: { kind: CreateKind; label: string; hint: string }[] = [
 ];
 
 const LIBRARY_CREATE_ITEMS: { kind: CreateKind; label: string; hint: string }[] = [
+  {
+    kind: "component",
+    label: "Component",
+    hint: `a VHDL part (${SECTION_EXT.components}) — package, entity, architecture`,
+  },
   { kind: "symbol", label: "Symbol", hint: `a ${SECTION_EXT.symbols} drawing of a part` },
   { kind: "footprint", label: "Footprint part", hint: "a land pattern in the footprints folder" },
   {
@@ -145,6 +171,8 @@ interface ExplorerApi {
   libraries: Set<string>;
   select: (entry: FsEntry) => void;
   openFile: (path: string) => void;
+  /** Switch to the Library Manager with this library selected. */
+  openLibrary: (path: string) => void;
   contextMenu: (e: ReactMouseEvent, entry: FsEntry) => void;
 }
 
@@ -231,6 +259,10 @@ function DirRow({ entry, depth, api }: { entry: FsEntry; depth: number; api: Exp
         style={{ paddingLeft: depth * 14 }}
         title={entry.path}
         onClick={() => void toggle()}
+        onDoubleClick={() => {
+          // A library folder opens in the Library Manager, not in the tree.
+          if (api.libraries.has(entry.path)) api.openLibrary(entry.path);
+        }}
         onContextMenu={(e) => api.contextMenu(e, entry)}
       >
         <button
@@ -302,6 +334,8 @@ export function FileExplorer({
   const [submenuAnchor, setSubmenuAnchor] = useState<PopupAnchor | null>(null);
   const [clipboard, setClipboard] = useState<{ path: string; name: string; isDir: boolean } | null>(null);
   const [create, setCreate] = useState<{ parent: string; kind: CreateKind } | null>(null);
+  /** Library whose footprints folder the IPC wizard writes into. */
+  const [wizardLibrary, setWizardLibrary] = useState<string | null>(null);
   const [createName, setCreateName] = useState("");
   const [createLayers, setCreateLayers] = useState(2);
   const [removeTarget, setRemoveTarget] = useState<FsEntry | null>(null);
@@ -326,6 +360,8 @@ export function FileExplorer({
   };
 
   const closeSubmenu = () => setSubmenuAnchor(null);
+
+  const { setActivity } = useContext(AppContext);
 
   const refresh = () => {
     emptiness.clear(); // folder contents changed: re-judge what is empty
@@ -443,6 +479,11 @@ export function FileExplorer({
   const openCreate = (parent: string, kind: CreateKind) => {
     setMenu(null);
     setSubmenuAnchor(null);
+    // Footprints are built by the IPC wizard rather than from a template.
+    if (kind === "footprint") {
+      setWizardLibrary(parent);
+      return;
+    }
     setCreate({ parent, kind });
     setCreateName(kind === "library" ? "new_library" : kind === "board" || kind === "board-snippet" ? "new_board" : "new_file");
     setCreateLayers(2);
@@ -456,10 +497,14 @@ export function FileExplorer({
     setNotice(null);
     try {
       const existing = await listDir(create.parent);
+      /** A file worth opening right after it is created. */
+      let created: string | null = null;
       switch (create.kind) {
         case "schematic": {
           const file = uniqueFileName(name, ".vhd", existing);
-          await writeFileText(joinPath(create.parent, file), schematicTemplate(name));
+          const path = joinPath(create.parent, file);
+          await writeFileText(path, schematicTemplate(name));
+          created = path;
           break;
         }
         case "library": {
@@ -478,11 +523,23 @@ export function FileExplorer({
           );
           break;
         }
+        case "component": {
+          const dir = joinPath(create.parent, "components");
+          await createDir(dir);
+          const file = uniqueFileName(name, SECTION_EXT.components, await listDir(dir));
+          const path = joinPath(dir, file);
+          // A valid VHDL component file, ready for the Part editor.
+          await writeFileText(path, serializeComponent(emptyComponent(name)));
+          created = path;
+          break;
+        }
         case "symbol": {
           const dir = joinPath(create.parent, "symbols");
           await createDir(dir);
           const file = uniqueFileName(name, SECTION_EXT.symbols, await listDir(dir));
-          await writeFileText(joinPath(dir, file), symbolTemplate(name));
+          const path = joinPath(dir, file);
+          await writeFileText(path, symbolTemplate(name));
+          created = path;
           break;
         }
         case "footprint": {
@@ -505,6 +562,9 @@ export function FileExplorer({
       }
       setCreate(null);
       refresh();
+      // Open what was just made: components land in the Part editor, symbols
+      // and schematics in the text editor.
+      if (created) onOpenFile(created);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
     } finally {
@@ -550,6 +610,10 @@ export function FileExplorer({
     libraries: new Set(libraryPaths),
     select: (entry) => setSelected(entry.path),
     openFile: onOpenFile,
+    openLibrary: (path) => {
+      requestLibrary(path);
+      setActivity("library");
+    },
     contextMenu: (e, entry) => void contextMenu(e, entry),
   };
 
@@ -717,13 +781,7 @@ export function FileExplorer({
       {/* Create dialog: name, plus the layer stack for boards and snippets. */}
       {create && (
         <PanelDialog
-          title={
-            create.kind === "library"
-              ? "New library folder"
-              : create.kind === "board" || create.kind === "board-snippet"
-                ? "New board"
-                : "New file"
-          }
+          title={CREATE_TITLES[create.kind]}
           onClose={() => setCreate(null)}
           onConfirm={() => {
             if (!busy && createName.trim()) void runCreate();
@@ -780,6 +838,11 @@ export function FileExplorer({
                 Created in <b>{create.parent}</b> with the component, symbol, footprint, board-snippet
                 and template folders plus its <code>.ehdlib.json</code> manifest.
               </>
+            ) : create.kind === "component" ? (
+              <>
+                Written as a VHDL component (package, entity, architecture) in the library's{" "}
+                <code>components</code> folder and opened in the Part editor.
+              </>
             ) : create.kind === "board-snippet" ? (
               <>
                 Saved in the library's <code>board-snippets</code> folder. A snippet only fits boards
@@ -792,6 +855,20 @@ export function FileExplorer({
             )}
           </p>
         </PanelDialog>
+      )}
+
+      {/* IPC footprint wizard — computes the land pattern, previews it and
+          writes <name>.fpt.ehd into the library's footprints folder. */}
+      {wizardLibrary && (
+        <FootprintWizard
+          libraryPath={wizardLibrary}
+          onClose={() => setWizardLibrary(null)}
+          onCreated={(path) => {
+            setWizardLibrary(null);
+            refresh();
+            onOpenFile(path);
+          }}
+        />
       )}
 
       {/* Remove confirmation */}

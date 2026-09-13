@@ -98,6 +98,7 @@ EHDL-IDE/
 - [docs/architecture.md](docs/architecture.md) — how the pieces fit together
 - [docs/vhdl-implementation.md](docs/vhdl-implementation.md) — the VHDL component/design format
 - [docs/roadmap.md](docs/roadmap.md) — what is still missing, first concept and extended goals
+- [docs/roadmap-checklist.md](docs/roadmap-checklist.md) — the same roadmap as a ticking checklist
 - [docs/releasing.md](docs/releasing.md) — versioning, CI, GitHub Releases
 
 ## License
