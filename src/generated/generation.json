@@ -1,0 +1,10 @@
+{
+  "design": "board.vhd",
+  "library": "C:\\Users\\Beatskip\\Documents\\AI testing\\EHDL IDE\\EHDL-IDE\\examples\\sample-project\\components",
+  "generatedAt": "2026-09-13T23:17:51.714Z",
+  "logs": [
+    "parsed 7 component file(s) from C:\\Users\\Beatskip\\Documents\\AI testing\\EHDL IDE\\EHDL-IDE\\examples\\sample-project\\components",
+    "parsed design 'board' with 7 instance(s)",
+    "elaborated 7 component(s), 7 net(s), 7 BOM row(s)"
+  ]
+}

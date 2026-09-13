@@ -89,7 +89,10 @@ log(
 );
 
 // --- 4. tscircuit → schematic ---------------------------------------------
-const circuit = new Circuit();
+// Routing is disabled: this stage produces the schematic only, and without PCB
+// footprints the autorouter has nothing to route on (it would fail async and
+// spam stderr on every run). The board editor will turn it back on.
+const circuit = new Circuit({ routingDisabled: true });
 
 for (const instance of netlist.components) {
   // pinLabels maps pin number → port name, which is how the VHDL port names
@@ -114,6 +117,9 @@ for (const net of netlist.nets) {
       new Trace({
         from: `${first.refdes}.${first.port}`,
         to: `${connection.refdes}.${connection.port}`,
+        // Schematic only: without PCB footprints the autorouter has nothing to
+        // route on, and its async failure would spam stderr on every run.
+        routingDisabled: true,
       }),
     );
   }
@@ -127,7 +133,16 @@ mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, "schematic.svg"), svg, "utf8");
 writeFileSync(join(outDir, "circuit.json"), `${JSON.stringify(circuitJson, null, 2)}\n`, "utf8");
 writeFileSync(join(outDir, "netlist.json"), `${JSON.stringify(netlist, null, 2)}\n`, "utf8");
+writeFileSync(join(outDir, "bom.json"), `${JSON.stringify(bom, null, 2)}\n`, "utf8");
 writeFileSync(join(outDir, "bom.csv"), `${bomToCsv(bom)}\n`, "utf8");
+
+// Machine-readable summary of the run — what the app loads after generating.
+const designName = topFile.slice(topFile.replace(/\//g, "\\").lastIndexOf("\\") + 1);
+writeFileSync(
+  join(outDir, "generation.json"),
+  `${JSON.stringify({ design: designName, library: libDir, generatedAt: new Date().toISOString(), logs }, null, 2)}\n`,
+  "utf8",
+);
 
 // The app imports this module: the drawing plus everything it needs to show
 // the component/net lists without touching the file system.

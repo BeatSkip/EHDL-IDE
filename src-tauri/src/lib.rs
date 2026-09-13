@@ -150,6 +150,95 @@ fn open_external(target: String) -> Result<(), String> {
     reveal_in_file_manager(&target)
 }
 
+/// Result of running a Node generator.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerationResult {
+    ok: bool,
+    /// Combined stdout/stderr, shown in the app's build log.
+    output: String,
+}
+
+/// Folders that may hold the repository (in dev the app runs from src-tauri).
+fn candidate_roots() -> Vec<std::path::PathBuf> {
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(explicit) = std::env::var("EHDL_ROOT") {
+        roots.push(std::path::PathBuf::from(explicit));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd.clone());
+        if let Some(parent) = cwd.parent() {
+            roots.push(parent.to_path_buf());
+            if let Some(grand) = parent.parent() {
+                roots.push(grand.to_path_buf());
+            }
+        }
+    }
+    roots
+}
+
+/// Runs a Node generator script — tscircuit cannot run inside the webview.
+fn run_generator(script_name: &str, args: &[String]) -> Result<GenerationResult, String> {
+    let mut script: Option<std::path::PathBuf> = None;
+    let mut root: Option<std::path::PathBuf> = None;
+    for candidate in candidate_roots() {
+        let path = candidate.join("scripts").join(script_name);
+        if path.is_file() {
+            script = Some(path);
+            root = Some(candidate);
+            break;
+        }
+    }
+    let (script, root) = match (script, root) {
+        (Some(script), Some(root)) => (script, root),
+        _ => {
+            return Err(format!(
+                "could not find scripts/{script_name} — run from the repository, or set EHDL_ROOT"
+            ))
+        }
+    };
+
+    let output = std::process::Command::new("node")
+        .arg(&script)
+        .args(args)
+        .current_dir(&root)
+        .output()
+        .map_err(|e| format!("failed to run node (is Node.js installed?): {e}"))?;
+
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if !stderr.trim().is_empty() {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&stderr);
+    }
+    Ok(GenerationResult {
+        ok: output.status.success(),
+        output: text,
+    })
+}
+
+/// Generate the schematic for a project: VHDL in, tscircuit SVG + netlist out.
+#[tauri::command]
+fn generate_schematic(
+    lib_dir: String,
+    top_file: String,
+    out_dir: String,
+) -> Result<GenerationResult, String> {
+    run_generator(
+        "generate-schematic.mjs",
+        &[
+            "--lib".into(),
+            lib_dir,
+            "--top".into(),
+            top_file,
+            "--out".into(),
+            out_dir,
+        ],
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -164,7 +253,8 @@ pub fn run() {
             delete_entry,
             copy_entry,
             open_in_file_manager,
-            open_external
+            open_external,
+            generate_schematic
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

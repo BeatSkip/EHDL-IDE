@@ -1,0 +1,65 @@
+[
+  {
+    "refdes": "C2",
+    "entity": "CAPACITOR_10N",
+    "variant": "C0603",
+    "manufacturer": "Generic",
+    "part_number": "CL10B103KB8NNNC",
+    "footprint": "CAPC1608X85N",
+    "qty": 1
+  },
+  {
+    "refdes": "C1",
+    "entity": "CAPACITOR_10U",
+    "variant": "C1206",
+    "manufacturer": "Generic",
+    "part_number": "CL31A106KBHNNNE",
+    "footprint": "CAPC3216X180N",
+    "qty": 1
+  },
+  {
+    "refdes": "D1",
+    "entity": "LED_RED",
+    "variant": "LED0603",
+    "manufacturer": "Generic",
+    "part_number": "LTST-C171KRKT",
+    "footprint": "LEDC1608X55N",
+    "qty": 1
+  },
+  {
+    "refdes": "U1",
+    "entity": "NE555",
+    "variant": "DIP8",
+    "manufacturer": "Texas Instruments",
+    "part_number": "NE555P",
+    "footprint": "DIP762W60P254L940H508Q8N",
+    "qty": 1
+  },
+  {
+    "refdes": "R1",
+    "entity": "RESISTOR_1K",
+    "variant": "R0603",
+    "manufacturer": "Generic",
+    "part_number": "RC0603FR-071KL",
+    "footprint": "RESC1608X60N",
+    "qty": 1
+  },
+  {
+    "refdes": "R3",
+    "entity": "RESISTOR_330",
+    "variant": "R0603",
+    "manufacturer": "Generic",
+    "part_number": "RC0603FR-07330RL",
+    "footprint": "RESC1608X60N",
+    "qty": 1
+  },
+  {
+    "refdes": "R2",
+    "entity": "RESISTOR_68K",
+    "variant": "R0603",
+    "manufacturer": "Generic",
+    "part_number": "RC0603FR-0768KL",
+    "footprint": "RESC1608X60N",
+    "qty": 1
+  }
+]

@@ -80,3 +80,19 @@ export async function openExternal(target: string): Promise<void> {
   if (!inTauri) return;
   await invoke("open_external", { target });
 }
+
+/** Result of a backend generator run (tscircuit runs in Node, not the webview). */
+export interface GenerationResult {
+  ok: boolean;
+  /** Combined stdout/stderr, shown in the app's build log. */
+  output: string;
+}
+
+/** Run the schematic generator for a library folder and a top-level design. */
+export async function generateSchematic(
+  libDir: string,
+  topFile: string,
+  outDir: string,
+): Promise<GenerationResult> {
+  return invoke<GenerationResult>("generate_schematic", { libDir, topFile, outDir });
+}

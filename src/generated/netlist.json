@@ -2,84 +2,194 @@
   "components": [
     {
       "refdes": "U1",
-      "entity": "LM358",
-      "variant": "SOIC8",
-      "footprint": "SOIC127P600X175-8N",
-      "pins": {
-        "IN_P": 3,
-        "IN_N": 2,
-        "OUT": 1,
-        "VCC": 8,
-        "GND": 4
-      }
-    },
-    {
-      "refdes": "U2",
-      "entity": "LM358",
+      "entity": "NE555",
       "variant": "DIP8",
       "footprint": "DIP762W60P254L940H508Q8N",
       "pins": {
-        "IN_P": 3,
-        "IN_N": 2,
-        "OUT": 1,
-        "VCC": 8,
-        "GND": 4
+        "GND": 1,
+        "TRIG": 2,
+        "OUT": 3,
+        "RESET": 4,
+        "CTRL": 5,
+        "THRESH": 6,
+        "DISCH": 7,
+        "VCC": 8
+      }
+    },
+    {
+      "refdes": "R1",
+      "entity": "RESISTOR_1K",
+      "variant": "R0603",
+      "footprint": "RESC1608X60N",
+      "pins": {
+        "P1": 1,
+        "P2": 2
+      }
+    },
+    {
+      "refdes": "R2",
+      "entity": "RESISTOR_68K",
+      "variant": "R0603",
+      "footprint": "RESC1608X60N",
+      "pins": {
+        "P1": 1,
+        "P2": 2
+      }
+    },
+    {
+      "refdes": "C1",
+      "entity": "CAPACITOR_10U",
+      "variant": "C1206",
+      "footprint": "CAPC3216X180N",
+      "pins": {
+        "P1": 1,
+        "P2": 2
+      }
+    },
+    {
+      "refdes": "C2",
+      "entity": "CAPACITOR_10N",
+      "variant": "C0603",
+      "footprint": "CAPC1608X85N",
+      "pins": {
+        "P1": 1,
+        "P2": 2
+      }
+    },
+    {
+      "refdes": "R3",
+      "entity": "RESISTOR_330",
+      "variant": "R0603",
+      "footprint": "RESC1608X60N",
+      "pins": {
+        "P1": 1,
+        "P2": 2
+      }
+    },
+    {
+      "refdes": "D1",
+      "entity": "LED_RED",
+      "variant": "LED0603",
+      "footprint": "LEDC1608X55N",
+      "pins": {
+        "A": 2,
+        "K": 1
       }
     }
   ],
   "nets": [
     {
-      "name": "A",
-      "connections": [
-        {
-          "refdes": "U1",
-          "pin": 3,
-          "port": "IN_P"
-        }
-      ]
-    },
-    {
-      "name": "B",
-      "connections": [
-        {
-          "refdes": "U1",
-          "pin": 2,
-          "port": "IN_N"
-        },
-        {
-          "refdes": "U2",
-          "pin": 2,
-          "port": "IN_N"
-        }
-      ]
-    },
-    {
       "name": "GND",
       "connections": [
         {
           "refdes": "U1",
-          "pin": 4,
+          "pin": 1,
           "port": "GND"
         },
         {
-          "refdes": "U2",
-          "pin": 4,
-          "port": "GND"
+          "refdes": "C1",
+          "pin": 2,
+          "port": "P2"
+        },
+        {
+          "refdes": "C2",
+          "pin": 2,
+          "port": "P2"
+        },
+        {
+          "refdes": "D1",
+          "pin": 1,
+          "port": "K"
         }
       ]
     },
     {
-      "name": "n1",
+      "name": "n_ctrl",
       "connections": [
         {
           "refdes": "U1",
+          "pin": 5,
+          "port": "CTRL"
+        },
+        {
+          "refdes": "C2",
           "pin": 1,
+          "port": "P1"
+        }
+      ]
+    },
+    {
+      "name": "n_disch",
+      "connections": [
+        {
+          "refdes": "U1",
+          "pin": 7,
+          "port": "DISCH"
+        },
+        {
+          "refdes": "R1",
+          "pin": 2,
+          "port": "P2"
+        },
+        {
+          "refdes": "R2",
+          "pin": 1,
+          "port": "P1"
+        }
+      ]
+    },
+    {
+      "name": "n_led",
+      "connections": [
+        {
+          "refdes": "R3",
+          "pin": 2,
+          "port": "P2"
+        },
+        {
+          "refdes": "D1",
+          "pin": 2,
+          "port": "A"
+        }
+      ]
+    },
+    {
+      "name": "n_out",
+      "connections": [
+        {
+          "refdes": "U1",
+          "pin": 3,
           "port": "OUT"
         },
         {
-          "refdes": "U2",
-          "pin": 3,
-          "port": "IN_P"
+          "refdes": "R3",
+          "pin": 1,
+          "port": "P1"
+        }
+      ]
+    },
+    {
+      "name": "n_timing",
+      "connections": [
+        {
+          "refdes": "U1",
+          "pin": 2,
+          "port": "TRIG"
+        },
+        {
+          "refdes": "U1",
+          "pin": 6,
+          "port": "THRESH"
+        },
+        {
+          "refdes": "R2",
+          "pin": 2,
+          "port": "P2"
+        },
+        {
+          "refdes": "C1",
+          "pin": 1,
+          "port": "P1"
         }
       ]
     },
@@ -88,23 +198,18 @@
       "connections": [
         {
           "refdes": "U1",
+          "pin": 4,
+          "port": "RESET"
+        },
+        {
+          "refdes": "U1",
           "pin": 8,
           "port": "VCC"
         },
         {
-          "refdes": "U2",
-          "pin": 8,
-          "port": "VCC"
-        }
-      ]
-    },
-    {
-      "name": "Y",
-      "connections": [
-        {
-          "refdes": "U2",
+          "refdes": "R1",
           "pin": 1,
-          "port": "OUT"
+          "port": "P1"
         }
       ]
     }
