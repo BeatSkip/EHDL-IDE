@@ -16,15 +16,27 @@ import { loadSettings, subscribeSettings } from "../settings";
  */
 /**
  * Monaco language id for a document: VHDL for design/component files, TypeScript
- * for symbol programs (they *are* tscircuit programs), JSON, or plain text.
+ * for symbol programs (they *are* tscircuit React programs, so JSX included),
+ * JSON, or plain text.
  */
 function languageFor(name: string): string {
   const lower = name.toLowerCase();
   if (lower.endsWith(".vhd") || lower.endsWith(".vhdl")) return "vhdl";
+  if (lower.endsWith(".tsx")) return "typescript";
   if (lower.endsWith(".ts")) return "typescript";
   if (lower.endsWith(".json")) return "json";
   if (lower.endsWith(".md")) return "markdown";
   return "plaintext";
+}
+
+/**
+ * What Monaco calls the model. The TypeScript service reads JSX from the file
+ * name — a `.tsx` document is parsed as TSX, a `.ts` one as TypeScript — so the
+ * document's own path (unique per open file) is what the model is named after.
+ */
+function modelUri(id: string): monaco.Uri {
+  const path = `/${id.replace(/^fs:/, "").replace(/\\/g, "/")}`;
+  return monaco.Uri.from({ scheme: "file", path });
 }
 
 export function CodeEditor({ file, onSave }: { file: VhdlFile; onSave?: () => void }) {
@@ -37,9 +49,13 @@ export function CodeEditor({ file, onSave }: { file: VhdlFile; onSave?: () => vo
     if (!host.current) return;
 
     const settings = loadSettings();
+    const model = monaco.editor.createModel(
+      getEditorText(file.id, file.content),
+      languageFor(file.name),
+      modelUri(file.id),
+    );
     const editor = monaco.editor.create(host.current, {
-      value: getEditorText(file.id, file.content),
-      language: languageFor(file.name),
+      model,
       theme: "vs-dark",
       automaticLayout: true,
       minimap: { enabled: false },
@@ -71,6 +87,7 @@ export function CodeEditor({ file, onSave }: { file: VhdlFile; onSave?: () => vo
       unregisterEditor(file.id);
       editorRef.current = null;
       editor.dispose();
+      model.dispose();
     };
     // One instance per file (each open file tab mounts a dedicated editor).
     // eslint-disable-next-line react-hooks/exhaustive-deps

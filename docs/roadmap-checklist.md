@@ -52,16 +52,21 @@ work that remains.
 
 ## 3. Symbols and footprints
 
-- [x] (partial) Symbol format: a symbol **is** a tscircuit program (`xxx.ts`),
-      with pins/body from the component's ports and pin map (see `docs/symbols.md`)
-- [x] (partial) Symbol editor: the Part editor draws the linked symbol and follows
-      edits live — a dedicated symbol editor (split source/drawing tab) is not
-      written yet, and symbols are still edited in the normal text tab
+- [x] (partial) Symbol format: a symbol **is** a tscircuit **React** program
+      (`xxx.tsx`), with pins/body from the component's ports and pin map; a part
+      can also carry its symbol inline (`--#symbol`), name a built-in element
+      (`SYMBOL_KIND`), or be drawn from its name (LED/capacitor/resistor/diode)
+      (see `docs/symbols.md`)
+- [x] (partial) Symbol editor: the Part editor draws the symbol in effect (inline,
+      kind, linked or implied) and follows edits live — a dedicated symbol editor
+      (split source/drawing tab) is not written yet, and symbols are still edited
+      in the normal text tab
 - [ ] Footprint format + footprint editor (pads, drill, courtyard, silkscreen)
 - [x] (partial) Footprint names come from `*_FP` and reach the netlist; `.fpt`
       files are written by the IPC wizard but are not drawn or used for boards yet
-- [x] (partial) Component ↔ symbol linking: the `SYMBOL` constant, honoured by the
-      schematic generator; footprint linking and "where is this used" are missing
+- [x] (partial) Component ↔ symbol linking: the `SYMBOL` constant, or a symbol
+      written into the component file, honoured by the schematic generator;
+      footprint linking and "where is this used" are missing
 - [x] (partial) Board snippets can be created and the layer-stack rule is
       implemented as a helper (`canHostBoard`) — applying a snippet to a board is
       not possible yet

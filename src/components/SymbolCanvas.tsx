@@ -152,19 +152,27 @@ function rendererFor(path: string): SymbolRenderer {
  * is open — so an unsaved symbol draws too — and the file on disk otherwise.
  * Edits redraw after a pause, which is what makes the symbol view follow the
  * source as you type without getting in the way of typing.
+ *
+ * `source` draws a symbol that has no file of its own: the module a part carries
+ * inline, or the one its kind implies. `symbolPath` still decides *where* the
+ * drawing is written, so the part the symbol belongs to is what to pass.
  */
-export function useSymbolDrawing(symbolPath: string | null): SymbolDrawing {
+export function useSymbolDrawing(symbolPath: string | null, source?: string | null): SymbolDrawing {
   const renderer = symbolPath ? rendererFor(symbolPath) : null;
   const drawing = useSyncExternalStore(
     renderer ? renderer.subscribe : noopSubscribe,
     renderer ? renderer.snapshot : emptySnapshot,
   );
 
-  /** Draws the program as it is right now (editor text, else the file). */
+  /** Draws the program as it is right now (given source, editor text, else file). */
   const requestDraw = useCallback(
     async (force: boolean) => {
       if (!symbolPath || !inTauri) return;
       const target = rendererFor(symbolPath);
+      if (source != null) {
+        target.request(source, force);
+        return;
+      }
       const fromEditor = peekEditorText(docIdForPath(symbolPath));
       if (fromEditor !== undefined) {
         target.request(fromEditor, force);
@@ -179,13 +187,18 @@ export function useSymbolDrawing(symbolPath: string | null): SymbolDrawing {
         );
       }
     },
-    [symbolPath],
+    [symbolPath, source],
   );
 
   // Draw on mount / when a different symbol is opened, and follow the editor.
+  // A source that comes from a part being typed into is debounced like the
+  // editor's own changes; a file is drawn as soon as it is opened.
   useEffect(() => {
     if (!symbolPath) return;
-    const timer = window.setTimeout(() => void requestDraw(false), 0);
+    const timer = window.setTimeout(
+      () => void requestDraw(false),
+      source == null ? 0 : REDRAW_DELAY_MS,
+    );
     let debounce: number | undefined;
     const unsubscribe = subscribeEditorText(docIdForPath(symbolPath), () => {
       if (debounce !== undefined) window.clearTimeout(debounce);
@@ -196,7 +209,7 @@ export function useSymbolDrawing(symbolPath: string | null): SymbolDrawing {
       if (debounce !== undefined) window.clearTimeout(debounce);
       unsubscribe();
     };
-  }, [symbolPath, requestDraw]);
+  }, [symbolPath, source, requestDraw]);
 
   return { ...drawing, redraw: () => void requestDraw(true) };
 }

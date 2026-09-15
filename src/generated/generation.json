@@ -1,12 +1,22 @@
 {
   "design": "board.vhd",
   "library": "E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\components",
-  "generatedAt": "2026-09-15T16:43:21.081Z",
+  "generatedAt": "2026-09-15T18:20:06.634Z",
   "logs": [
     "parsed 7 component file(s) from E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\components",
     "parsed design 'board' with 7 instance(s)",
+    "warning: Port 'Pos' on C2 is not connected (floating)",
+    "warning: Port 'Neg' on C2 is not connected (floating)",
+    "error: Port 'P1' does not exist on entity CAPACITOR_10N (instance C2)",
+    "error: Port 'P2' does not exist on entity CAPACITOR_10N (instance C2)",
     "elaborated 7 component(s), 7 net(s), 7 BOM row(s)",
     "symbol: U1 (NE555) drawn from E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\symbols\\ne555.ts",
-    "drawing: 1 part(s) from linked symbol files, 6 from their ports"
+    "symbol: R1 (RESISTOR_1K) drawn from <resistor> (from the part name)",
+    "symbol: R2 (RESISTOR_68K) drawn from <resistor> (from the part name)",
+    "symbol: C1 (CAPACITOR_10U) drawn from E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\symbols\\CPol.ts",
+    "symbol: C2 (CAPACITOR_10N) drawn from E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\symbols\\CPol.ts",
+    "symbol: R3 (RESISTOR_330) drawn from <resistor> (from the part name)",
+    "symbol: D1 (LED_RED) drawn from E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\symbols\\LED.ts",
+    "drawing: 0 part(s) from a symbol inside the component, 0 by declared kind, 4 from linked symbol files, 3 auto-detected, 0 from their ports"
   ]
 }

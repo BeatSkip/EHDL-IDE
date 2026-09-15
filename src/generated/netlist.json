@@ -42,8 +42,8 @@
       "variant": "C1206",
       "footprint": "CAPC3216X180N",
       "pins": {
-        "P1": 1,
-        "P2": 2
+        "Pos": 1,
+        "Neg": 2
       }
     },
     {
@@ -51,10 +51,7 @@
       "entity": "CAPACITOR_10N",
       "variant": "C0603",
       "footprint": "CAPC1608X85N",
-      "pins": {
-        "P1": 1,
-        "P2": 2
-      }
+      "pins": {}
     },
     {
       "refdes": "R3",
@@ -89,12 +86,7 @@
         {
           "refdes": "C1",
           "pin": 2,
-          "port": "P2"
-        },
-        {
-          "refdes": "C2",
-          "pin": 2,
-          "port": "P2"
+          "port": "Neg"
         },
         {
           "refdes": "D1",
@@ -110,11 +102,6 @@
           "refdes": "U1",
           "pin": 5,
           "port": "CTRL"
-        },
-        {
-          "refdes": "C2",
-          "pin": 1,
-          "port": "P1"
         }
       ]
     },
@@ -189,7 +176,7 @@
         {
           "refdes": "C1",
           "pin": 1,
-          "port": "P1"
+          "port": "Pos"
         }
       ]
     },

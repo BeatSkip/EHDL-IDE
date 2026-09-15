@@ -5,7 +5,18 @@ import { CodeEditor } from "./CodeEditor";
 import { getEditorText, setEditorText } from "../editorState";
 import { docName, docPath } from "../documents";
 import { dirNameOf } from "../libraryFiles";
-import { resolveSymbolPath } from "../symbolFile";
+import {
+  SYMBOL_KINDS,
+  asSymbolKind,
+  detectKind,
+  inlineSymbolSource,
+  metadataValue,
+  resolveSymbolPath,
+  symbolSourceFromComponent,
+  withInlineSymbol,
+  withoutInlineSymbol,
+} from "../symbolFile";
+import type { SymbolKind } from "../symbolFile";
 import { SymbolPreview } from "./SymbolPreview";
 import { inTauri, readFileText, openExternal, openFile } from "../fs";
 import { parseComponentVhdl, serializeComponent, packageNameFor, pinTypeNameFor } from "../vhdlPart";
@@ -65,6 +76,32 @@ export function PartEditor({ fileId }: { fileId: string }) {
   /** Where that link points, so the drawing and the generator agree. */
   const symbolPath = path && symbolLink ? resolveSymbolPath(path, symbolLink) : null;
 
+  /** The symbol this part writes out itself, if it has one. */
+  const inlineSymbol = inlineSymbolSource(text());
+
+  /** The element the part declares: `<PART>_SYMBOL_KIND`, or a `SYMBOL` naming one. */
+  const declaredKind = asSymbolKind(metadataValue(model, "SYMBOL_KIND")) ?? asSymbolKind(symbolLink);
+
+  /** What the part is drawn with, and where that comes from. */
+  const symbolInUse: { source: string | null; path: string | null; origin: string } = inlineSymbol
+    ? { source: inlineSymbol, path, origin: "written in this file" }
+    : declaredKind
+      ? {
+          source: symbolSourceFromComponent(model, model.defaultVariant, model.name, declaredKind),
+          path,
+          origin: `<${declaredKind}> — declared by this part`,
+        }
+      : symbolPath
+        ? { source: null, path: symbolPath, origin: "linked symbol program" }
+        : {
+            source: symbolSourceFromComponent(model, model.defaultVariant, model.name),
+            path,
+            origin:
+              detectKind(model) === "chip"
+                ? "its ports, on a plain body"
+                : `<${detectKind(model)}> — from the part's name`,
+          };
+
   /**
    * Link a schematic symbol to this part — stored as a `SYMBOL` string constant
    * in the package, relative to the part file, so it survives on other machines
@@ -75,6 +112,15 @@ export function PartEditor({ fileId }: { fileId: string }) {
     applyModel({ ...model, metadata: value ? [...rest, { key: "SYMBOL", value }] : rest });
   };
 
+  /** Declare the element this part is drawn with, or "" for what its name implies. */
+  const setSymbolKind = (value: string) => {
+    const rest = model.metadata.filter((entry) => entry.key.toUpperCase() !== "SYMBOL_KIND");
+    applyModel({
+      ...model,
+      metadata: value ? [...rest, { key: "SYMBOL_KIND", value }] : rest,
+    });
+  };
+
   const linkSymbol = async () => {
     const picked = await openFile();
     if (!picked) return;
@@ -82,11 +128,28 @@ export function PartEditor({ fileId }: { fileId: string }) {
     setSymbolLink(partPath ? relativeTo(dirNameOf(partPath), picked) : picked);
   };
 
+  /** Write the symbol this part implies into the file, as a `--#symbol` block. */
+  const writeInlineSymbol = () => {
+    setEditorText(fileId, withInlineSymbol(text(), symbolSourceFromComponent(model, model.defaultVariant, model.name)));
+    setDirty(true);
+  };
+
+  /** Take the symbol block back out of the file. */
+  const removeInlineSymbol = () => {
+    setEditorText(fileId, withoutInlineSymbol(text()));
+    setDirty(true);
+  };
+
   /** Graphical edits go straight into the shared document text. */
   const applyModel = (next: ComponentModel) => {
-    const issues = parseComponentVhdl(serializeComponent(next), docName(fileId)).issues;
+    // A symbol written into the file is not part of the parsed model, so it is
+    // carried across the rewrite instead of being lost with it.
+    const carried = inlineSymbolSource(text());
+    const vhdl = serializeComponent(next);
+    const source = carried ? withInlineSymbol(vhdl, carried) : vhdl;
+    const issues = parseComponentVhdl(source, docName(fileId)).issues;
     setParsed({ model: next, issues });
-    setEditorText(fileId, serializeComponent(next));
+    setEditorText(fileId, source);
     setDirty(true);
   };
 
@@ -331,11 +394,19 @@ export function PartEditor({ fileId }: { fileId: string }) {
                 <span className="part-section-title">Schematic symbol</span>
                 <button
                   className="btn"
-                  title="Choose the symbol file drawn for this part"
+                  title="Write the symbol this part needs into the file itself"
+                  disabled={!inTauri}
+                  onClick={writeInlineSymbol}
+                >
+                  {inlineSymbol ? "Rewrite in file" : "Write in file"}
+                </button>
+                <button
+                  className="btn"
+                  title="Choose the symbol program drawn for this part"
                   disabled={!inTauri}
                   onClick={() => void linkSymbol()}
                 >
-                  {symbolLink ? "Change…" : "Link…"}
+                  {symbolLink ? "Change link…" : "Link a file…"}
                 </button>
                 {symbolLink && (
                   <button
@@ -349,21 +420,56 @@ export function PartEditor({ fileId }: { fileId: string }) {
                     </svg>
                   </button>
                 )}
+                {inlineSymbol && (
+                  <button
+                    className="library-icon-btn"
+                    title="Remove the symbol block from this file"
+                    aria-label="Remove the symbol written in this file"
+                    onClick={removeInlineSymbol}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M3 8h10" stroke="currentColor" strokeWidth="1.6" fill="none" />
+                    </svg>
+                  </button>
+                )}
               </div>
-              {symbolLink ? (
-                <>
-                  <div className="part-link-path" title={symbolLink}>
-                    {symbolLink}
-                  </div>
-                  <p className="part-sub">Drawn in the Symbol panel — it is the symbol designs use.</p>
-                </>
-              ) : (
-                <p className="part-empty">
-                  No symbol linked — pick a symbol program from the library's <code>symbols</code>{" "}
-                  folder. The link is written as a <code>SYMBOL</code> constant in this file, so the
-                  VHDL view shows it too.
+
+              <p className="part-sub">
+                Drawn as <strong>{symbolInUse.origin}</strong>.
+              </p>
+              {inlineSymbol && (
+                <p className="part-sub">
+                  The <code>--#symbol</code> block at the end of this file is the symbol — edit it in
+                  the VHDL view.
                 </p>
               )}
+              {symbolLink && (
+                <div className="part-link-path" title={symbolLink}>
+                  {symbolLink}
+                </div>
+              )}
+
+              <div className="part-section-head">
+                <span className="part-section-title">Element</span>
+              </div>
+              <select
+                className="settings-input"
+                aria-label="Element this part is drawn with"
+                title="The tscircuit element used when the part does not write its own symbol"
+                value={declaredKind ?? ""}
+                onChange={(e) => setSymbolKind(e.target.value as SymbolKind | "")}
+              >
+                <option value="">Auto — from the ports and the part's name</option>
+                {SYMBOL_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {kind}
+                  </option>
+                ))}
+              </select>
+              <p className="part-sub">
+                A part without a symbol of its own is drawn with this element; the ports, pin numbers
+                and value come from the file. Stored as a <code>SYMBOL_KIND</code> constant.
+              </p>
             </section>
 
             <section className="part-section">
@@ -535,7 +641,9 @@ export function PartEditor({ fileId }: { fileId: string }) {
 
           <aside className="part-preview">
             <SymbolPreview
-              symbolPath={symbolPath}
+              symbolPath={symbolInUse.path}
+              source={symbolInUse.source}
+              origin={symbolInUse.origin}
               onOpen={symbolPath ? () => void openFsPath(symbolPath) : undefined}
             />
 

@@ -56,8 +56,8 @@ begin
   C1 : entity work.CAPACITOR_10U
     generic map (PACKAGE_VARIANT => "C1206")
     port map (
-      P1 => n_timing,
-      P2 => GND
+      Pos => n_timing,
+      Neg => GND
     );
 
   C2 : entity work.CAPACITOR_10N

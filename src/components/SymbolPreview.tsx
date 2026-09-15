@@ -3,30 +3,40 @@ import { fileNameOf } from "../libraryFiles";
 import { SymbolCanvas, useSymbolDrawing } from "./SymbolCanvas";
 
 /**
- * The Symbol panel of the Part editor — the drawing of the symbol a part links.
+ * The Symbol panel of the Part editor — the drawing of the symbol a part uses.
  *
- * The drawing comes from the backend (see `SymbolCanvas`), follows the symbol
- * program as it is edited, and is the same drawing the schematic generator uses
- * for this part in a design.
+ * A part is drawn by a symbol it carries inline, by the element its kind names,
+ * or by a symbol program it links; the panel draws whichever of those is in
+ * effect, following the part as it is edited. It is the same drawing the
+ * schematic generator draws this part with in a design.
  */
 export function SymbolPreview({
   symbolPath,
+  source,
+  origin,
   onOpen,
 }: {
   /** Absolute path of the linked symbol program, or null when none is linked. */
   symbolPath: string | null;
-  /** Open the symbol program in the editor. */
+  /** Module of a symbol the part carries itself (inline, or from its kind). */
+  source?: string | null;
+  /** Where the symbol comes from, shown in the heading. */
+  origin?: string;
+  /** Open the symbol program in the editor (linked symbols only). */
   onOpen?: () => void;
 }) {
-  const drawing = useSymbolDrawing(symbolPath);
+  // An inline symbol has no file to follow: the part is what is drawn, and the
+  // drawing is written next to it.
+  const drawing = useSymbolDrawing(symbolPath, source ?? null);
+  const heading = source != null ? origin ?? "written in this file" : symbolPath ? fileNameOf(symbolPath) : "";
 
   return (
     <section className="part-symbol">
       <div className="part-section-head">
-        <span className="part-section-title" title={symbolPath ?? ""}>
-          Symbol{symbolPath ? ` — ${fileNameOf(symbolPath)}` : ""}
+        <span className="part-section-title" title={symbolPath ?? heading}>
+          Symbol{symbolPath || heading ? ` — ${heading}` : ""}
         </span>
-        {symbolPath && onOpen && (
+        {symbolPath && source == null && onOpen && (
           <button className="btn" title="Open the symbol program in the editor" onClick={onOpen}>
             Open
           </button>
@@ -47,15 +57,15 @@ export function SymbolPreview({
 
       {!symbolPath ? (
         <p className="part-empty">
-          No symbol linked. Link a symbol program and its drawing appears here — the same program the
-          schematic generator draws this part with.
+          No symbol to draw. Write one in this file, name the part's kind, or link a symbol program — the
+          drawing appears here, and is the same one the schematic generator uses.
         </p>
       ) : (
         <>
           <SymbolCanvas path={symbolPath} drawing={drawing} />
           {drawing.svg && (
             <p className="part-symbol-status">
-              {drawing.summary ?? "Drawn."} — follows the program as you edit it; drag to pan,
+              {drawing.summary ?? "Drawn."} — follows the part as you edit it; drag to pan,
               Ctrl+wheel to zoom.
             </p>
           )}

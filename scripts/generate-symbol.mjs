@@ -1,26 +1,34 @@
-// Symbol generator — runs a tscircuit symbol program and renders it.
+// Symbol generator — renders one symbol with tscircuit.
 //
-// A symbol file is TypeScript that draws the part with tscircuit. This script
-// builds a circuit, hands it to the symbol module's default export, and renders
-// the result as an SVG. The symbol editor previews that SVG and re-runs this
-// whenever the source changes.
+// A symbol is a tscircuit *React* module (`<chip … />`, `<led … />`), or a
+// component file whose `--#symbol` block carries one. This script draws it and
+// writes the SVG the editor previews; scripts/lib/symbol-module.mjs does the
+// compiling and running (JSX → JS, imports pointed at tscircuit's React).
 //
-//   node scripts/generate-symbol.mjs --file <name.ts> --out <dir>
+//   node scripts/generate-symbol.mjs --file <symbol.tsx|component.vhd> [--out <dir>]
 //
-// Bare `tscircuit` imports are rewritten to this repository's copy, so a symbol
-// file works from anywhere on disk (a library outside the repo, for instance).
+// Symbols written in the older `(circuit, options)` form still draw.
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Circuit } from "tscircuit";
 import { convertCircuitJsonToSchematicSvg } from "circuit-to-svg";
+import { createSymbolRunner } from "./lib/symbol-module.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const require = createRequire(import.meta.url);
+
+// The shared symbol helpers are TypeScript, compiled to CommonJS into
+// .tmp-symbol by `npm run gen:schematic`. Mark that folder as CommonJS before
+// importing from it (this repository is an ES module package).
+const compiledDir = join(root, ".tmp-symbol");
+mkdirSync(compiledDir, { recursive: true });
+writeFileSync(join(compiledDir, "package.json"), '{"type":"commonjs"}\n');
+
+const { inlineSymbolSource } = await import(
+  pathToFileURL(join(compiledDir, "src", "symbolFile.js")).href
+);
 
 function flag(name, fallback = "") {
   const index = process.argv.indexOf(`--${name}`);
@@ -29,43 +37,36 @@ function flag(name, fallback = "") {
 
 const symbolFile = flag("file");
 if (!symbolFile) {
-  console.error("usage: node scripts/generate-symbol.mjs --file <name.ts> [--out <dir>]");
+  console.error("usage: node scripts/generate-symbol.mjs --file <symbol.tsx|component.vhd> [--out <dir>]");
   process.exit(1);
 }
 const outDir = resolve(root, flag("out", "src/generated"));
 const sourcePath = resolve(root, symbolFile);
+const text = readFileSync(sourcePath, "utf8");
 
-// `tscircuit` resolves from this repository even when the symbol lives elsewhere.
-const tscircuitEntry = pathToFileURL(require.resolve("tscircuit")).href;
-const source = readFileSync(sourcePath, "utf8").replace(
-  /(from\s*|import\s*\(\s*)(["'])tscircuit\2/g,
-  (_match, prefix, quote) => `${prefix}${quote}${tscircuitEntry}${quote}`,
-);
-
-// Node strips the TypeScript types itself; a copy is used so the original file
-// is never touched and the rewritten import is what runs.
-const scratch = mkdtempSync(join(tmpdir(), "ehdl-symbol-"));
-const moduleFile = join(scratch, "symbol.ts");
-writeFileSync(moduleFile, source, "utf8");
-
-const loaded = await import(pathToFileURL(moduleFile).href);
-// The module is loaded; drop the scratch copy so repeat runs (the preview
-// redraws while you type) don't pile up temp folders.
-rmSync(scratch, { recursive: true, force: true });
-const build = loaded.default ?? loaded.symbol ?? loaded.build;
-if (typeof build !== "function") {
+// A component file carries its symbol in a `--#symbol` comment block; anything
+// else *is* the module.
+const isComponent = [".vhd", ".ehd"].includes(extname(sourcePath).toLowerCase());
+const source = isComponent ? inlineSymbolSource(text) : text;
+if (!source) {
   console.error(
-    `symbol file ${symbolFile} must default-export a function that draws the symbol, e.g. ` +
-      "`export default (circuit) => { … }`",
+    `${symbolFile} carries no symbol. Add a ${"--#symbol"} … ${"--#/symbol"} block, or point --file at a symbol module.`,
   );
   process.exit(1);
 }
 
-// `platform` is where `Circuit` reads `routingDisabled` from; a top-level flag
-// is dropped by its constructor and the autorouter would run on a symbol that
-// has no PCB footprints to route on (failing async after the SVG is written).
+// --- render ----------------------------------------------------------------
+const runner = createSymbolRunner(root);
 const circuit = new Circuit({ platform: { routingDisabled: true } });
-await build(circuit);
+try {
+  const build = await runner.load(source, basename(sourcePath));
+  runner.add(circuit, build, {});
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+} finally {
+  runner.dispose();
+}
 
 const circuitJson = circuit.getCircuitJson();
 const svg = convertCircuitJsonToSchematicSvg(circuitJson);

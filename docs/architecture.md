@@ -34,7 +34,7 @@ into the Rust commands (see `src/fs.ts` and `src-tauri/src/lib.rs`).
 | `designStore.ts` | The design the schematic pane draws and the Parts tab lists (plus the shared selection), so both panels show the same run |
 | `libraryMeta.ts` | Reads/writes the per-library manifest (`<library_name>.ehdlib.json`) |
 | `libraryFiles.ts` | Part file naming, per-category extensions and the plain-text part template |
-| `symbolFile.ts` | Symbol programs: the template written for a new symbol, link/path helpers and the preview location |
+| `symbolFile.ts` | Symbol programs: the template written for a new symbol, the `--#symbol` block a part carries, kind and link/path helpers, and the preview location |
 | `vhdlPart.ts` | The VHDL component format: parser, canonical writer and checks |
 | `componentLibrary.ts` | Component database: walks a library and reports spec problems |
 | `libraryIcons.tsx` | Icon set available to sub-categories |
@@ -73,7 +73,7 @@ under each section are **plain-text part files** in that folder, read straight
 from disk; a component, symbol, footprint or snippet is a separate file type
 (components link their symbol with a `SYMBOL` constant — see
 [symbols.md](symbols.md)). Known part extensions
-(`.vhd`, `.ts`, `.fpt`, `.txt`) are hidden in the tree — the category folder
+(`.vhd`, `.tsx`, `.ts`, `.fpt`, `.txt`) are hidden in the tree — the category folder
 already states the type — and re-applied when the row is renamed; a file with
 any other extension keeps it. Categories can also hold **sub-category folders** (right-click a category *or*
 a sub-category → *New sub-category*), so sub-categories nest to any depth;
@@ -88,8 +88,8 @@ sub-category shows a warning when it still contains part files.
 
 Add / Rename / Copy / Paste / Duplicate / Delete act on the file system through
 the Rust commands (`rename_entry`, `copy_entry`, `delete_entry`); a new part is
-written with `write_file`. Components are `xxx.vhd`, symbols are tscircuit
-programs `xxx.ts`, and footprints are `xxx.fpt` (the IPC-7351 name is the file
+written with `write_file`. Components are `xxx.vhd`, symbols are tscircuit React
+programs `xxx.tsx`, and footprints are `xxx.fpt` (the IPC-7351 name is the file
 name); the remaining categories keep the `.txt` placeholder (`SECTION_EXT` in
 `libraryFiles.ts`) and their formats are still to be decided.
 
@@ -123,7 +123,7 @@ is preserved verbatim, so a graphical save doesn't throw hand-written text away.
 
 An editor document can be shown as source only, drawing only, or both side by
 side (the three toolbar buttons, remembered per file). The drawing half is the
-**design schematic** — except for symbol programs (`symbols/xxx.ts`): those draw
+**design schematic** — except for symbol programs (`symbols/xxx.tsx`): those draw
 **their own symbol** through `SymbolPane`/`SymbolCanvas` (`SymbolCanvas.tsx`),
 which is the same drawing the Part editor's Symbol panel shows. A symbol view
 fits the symbol's own extent (not the renderer's 1200×600 sheet) and is pannable

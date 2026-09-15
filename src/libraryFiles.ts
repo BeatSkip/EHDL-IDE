@@ -4,9 +4,10 @@
  * A library folder holds one folder per category (components, symbols,
  * footprints, board-snippets, templates). Inside a category folder there are
  * **part files** and optional **sub-category folders**. Components are VHDL
- * (`xxx.vhd`, see `vhdlPart.ts`), symbols are tscircuit programs (`xxx.ts`, see
- * `symbolFile.ts`) and footprints are `.fpt` files (`ipcFootprint.ts`); the
- * remaining categories are still plain text (`buildPartContent`).
+ * (`xxx.vhd`, see `vhdlPart.ts`), symbols are tscircuit React programs
+ * (`xxx.tsx`, see `symbolFile.ts`) and footprints are `.fpt` files
+ * (`ipcFootprint.ts`); the remaining categories are still plain text
+ * (`buildPartContent`).
  */
 
 import type { FsEntry } from "./fs";
@@ -18,13 +19,13 @@ import { FOOTPRINT_EXT } from "./ipcFootprint";
  *
  * Components and schematics are both VHDL (`.vhd`) — a component is a `.vhd`
  * inside a library's `components` folder, a schematic is a design `.vhd`
- * elsewhere; symbols are tscircuit programs in TypeScript (`.ts`) and footprints
- * use `.fpt` (IPC footprint wizard). The remaining categories keep the plain
- * `.txt` placeholder until their formats are decided.
+ * elsewhere; symbols are tscircuit React programs (`.tsx`, the older `.ts`
+ * still runs) and footprints use `.fpt` (IPC footprint wizard). The remaining
+ * categories keep the plain `.txt` placeholder until their formats are decided.
  */
 export const SECTION_EXT: Record<LibrarySectionId, string> = {
   components: ".vhd",
-  symbols: ".ts",
+  symbols: ".tsx",
   footprints: FOOTPRINT_EXT,
   "board-snippets": ".txt",
   templates: ".txt",
@@ -49,7 +50,7 @@ export function isPartFile(path: string): boolean {
  * the file is, so `ne555.vhd` is listed as `ne555`. Anything with an unknown
  * extension (an imported `.kicad_mod`, say) keeps it.
  */
-const HIDDEN_EXTS = [PART_EXT, ".ts", FOOTPRINT_EXT, ".txt"];
+const HIDDEN_EXTS = [PART_EXT, ".tsx", ".ts", FOOTPRINT_EXT, ".txt"];
 
 /** The hidden extension of a file name, or "" when it has none. */
 export function hiddenExt(name: string): string {
