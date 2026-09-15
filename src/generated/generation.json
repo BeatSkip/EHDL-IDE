@@ -1,12 +1,12 @@
 {
   "design": "board.vhd",
-  "library": "C:\\Users\\Beatskip\\Documents\\AI testing\\EHDL IDE\\EHDL-IDE\\examples\\sample-project\\sample_lib\\components",
-  "generatedAt": "2026-09-15T16:21:17.656Z",
+  "library": "E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\components",
+  "generatedAt": "2026-09-15T16:43:21.081Z",
   "logs": [
-    "parsed 7 component file(s) from C:\\Users\\Beatskip\\Documents\\AI testing\\EHDL IDE\\EHDL-IDE\\examples\\sample-project\\sample_lib\\components",
+    "parsed 7 component file(s) from E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\components",
     "parsed design 'board' with 7 instance(s)",
     "elaborated 7 component(s), 7 net(s), 7 BOM row(s)",
-    "symbol: U1 (NE555) drawn from C:\\Users\\Beatskip\\Documents\\AI testing\\EHDL IDE\\EHDL-IDE\\examples\\sample-project\\sample_lib\\symbols\\ne555.ts",
+    "symbol: U1 (NE555) drawn from E:\\dsh-workpath\\EHDL\\EHDL-IDE\\examples\\sample-project\\sample_lib\\symbols\\ne555.ts",
     "drawing: 1 part(s) from linked symbol files, 6 from their ports"
   ]
 }

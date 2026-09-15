@@ -61,7 +61,10 @@ if (typeof build !== "function") {
   process.exit(1);
 }
 
-const circuit = new Circuit({ routingDisabled: true });
+// `platform` is where `Circuit` reads `routingDisabled` from; a top-level flag
+// is dropped by its constructor and the autorouter would run on a symbol that
+// has no PCB footprints to route on (failing async after the SVG is written).
+const circuit = new Circuit({ platform: { routingDisabled: true } });
 await build(circuit);
 
 const circuitJson = circuit.getCircuitJson();

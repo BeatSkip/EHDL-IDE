@@ -103,7 +103,11 @@ log(
 // Routing is disabled: this stage produces the schematic only, and without PCB
 // footprints the autorouter has nothing to route on (it would fail async and
 // spam stderr on every run). The board editor will turn it back on.
-const circuit = new Circuit({ routingDisabled: true });
+//
+// The flag has to travel in `platform`: `Circuit` only reads `platform`,
+// `projectUrl` and its caches from the constructor, so a top-level
+// `{ routingDisabled: true }` is dropped and the autorouter runs anyway.
+const circuit = new Circuit({ platform: { routingDisabled: true } });
 
 // --- linked symbols --------------------------------------------------------
 // A component may link a tscircuit symbol program with a `SYMBOL` metadata
