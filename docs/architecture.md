@@ -31,6 +31,7 @@ into the Rust commands (see `src/fs.ts` and `src-tauri/src/lib.rs`).
 | `main.tsx` | Entry point: Monaco/flexlayout/global CSS, splash fade-out, disabled native context menu |
 | `recentFiles.ts` | LocalStorage list of recently opened files (Welcome view) |
 | `settings.ts` | LocalStorage-backed stores: editor settings, library registry, service accounts (library contents are read from disk) |
+| `designStore.ts` | The design the schematic pane draws and the Parts tab lists (plus the shared selection), so both panels show the same run |
 | `libraryMeta.ts` | Reads/writes the per-library manifest (`<library_name>.ehdlib.json`) |
 | `libraryFiles.ts` | Part file naming, per-category extensions and the plain-text part template |
 | `symbolFile.ts` | Symbol programs: the template written for a new symbol, link/path helpers and the preview location |
@@ -41,7 +42,25 @@ into the Rust commands (see `src/fs.ts` and `src-tauri/src/lib.rs`).
 | `documents.ts`, `editorState.ts`, `editors.ts` | Open-document registry, per-file text store, live Monaco instance registry |
 | `monacoSetup.ts` | Monaco worker + VHDL Monarch tokenizer/language config |
 | `popupPosition.ts` | Measured, auto-flipping positioning for popup menus |
-| `components/` | UI pieces: `MenuBar`, `ActivityBar`, `WindowControls`, `LibraryView`, `SettingsModal`, `CodeEditor`, `SchematicView`, trees/panels |
+| `components/` | UI pieces: `MenuBar`, `ActivityBar`, `WindowControls`, `LibraryView`, `SettingsModal`, `CodeEditor`, `SchematicView`, `DesignTabs`, `SymbolCanvas`, trees/panels |
+
+### Dock layout
+
+Three groups: the sidebar (explorer / Library Manager / Create), the editor, and
+the **properties group**, which carries four tabs:
+
+| Tab | Shows |
+| --- | --- |
+| **Properties** | the selection's fields (placeholder) |
+| **Parts** | the parts list and BOM of the design |
+| **Nets** | the elaborated nets and what is connected to them |
+| **Build** | which artifacts are being drawn, the last generation run's output and the generator's log |
+
+All three design tabs read `designStore.ts`, so they show the same run the
+schematic pane draws and they work even if that pane was never opened; clicking a
+part or net highlights it in the drawing. Keeping them out of the schematic pane
+leaves that pane as the drawing alone, and keeps the lists readable while the
+editor shows something else.
 
 ### Library manager
 
@@ -99,7 +118,18 @@ and writes the canonical form back.
 
 Comments are kept (re-emitted at the top of the file) and the architecture body
 is preserved verbatim, so a graphical save doesn't throw hand-written text away.
-Symbol files (`xxx.ts`) open in the normal text editor as TypeScript.
+
+### Editor panes
+
+An editor document can be shown as source only, drawing only, or both side by
+side (the three toolbar buttons, remembered per file). The drawing half is the
+**design schematic** — except for symbol programs (`symbols/xxx.ts`): those draw
+**their own symbol** through `SymbolPane`/`SymbolCanvas` (`SymbolCanvas.tsx`),
+which is the same drawing the Part editor's Symbol panel shows. A symbol view
+fits the symbol's own extent (not the renderer's 1200×600 sheet) and is pannable
+and zoomable: drag to pan, wheel to zoom about the pointer, double-click or
+**Fit** to frame it again — the same gestures as the schematic pane. The source
+is highlighted as VHDL, TypeScript or JSON according to the file name.
 
 The library's components folder can be validated as a whole (the ✓ button in the
 library toolbar): `src/componentLibrary.ts` walks it recursively, parses every

@@ -1,10 +1,23 @@
 import * as monaco from "monaco-editor";
+import { typescript } from "monaco-editor";
 import editorWorker from "monaco-editor/editor/editor.worker?worker";
+import tsWorker from "monaco-editor/language/typescript/ts.worker?worker";
 
-// Use a locally-bundled worker (no CDN) so the editor works offline inside Tauri.
-(globalThis as { MonacoEnvironment?: { getWorker: () => unknown } }).MonacoEnvironment = {
-  getWorker: () => new editorWorker(),
+// Use locally-bundled workers (no CDN) so the editor works offline inside Tauri.
+// TypeScript gets its language-service worker (symbol programs are TypeScript);
+// everything else — including VHDL — uses the plain editor worker.
+(globalThis as { MonacoEnvironment?: { getWorker: (moduleId: string, label: string) => unknown } }).MonacoEnvironment = {
+  getWorker: (_moduleId, label) =>
+    label === "typescript" || label === "javascript" ? new tsWorker() : new editorWorker(),
 };
+
+// Symbol programs import `tscircuit`, whose type definitions are not available
+// inside the worker — reporting that as an error would cover the file in
+// squiggles, so only syntax is checked.
+typescript.typescriptDefaults.setDiagnosticsOptions({
+  noSemanticValidation: true,
+  noSyntaxValidation: false,
+});
 
 // ---- VHDL language (Monarch tokenizer) ----
 

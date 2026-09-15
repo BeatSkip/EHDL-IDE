@@ -16,6 +16,7 @@ import {
 import { baseName, docIdForPath, docName, docPath, isRealDoc, registerRealDoc } from "./documents";
 import { inTauri, openFolder, readFileText, writeFileText } from "./fs";
 import { isPartFile } from "./libraryFiles";
+import { isSymbolFile } from "./symbolFile";
 import { getEditorText, setEditorText } from "./editorState";
 import { getEditor } from "./editors";
 import { FileExplorer } from "./components/FileExplorer";
@@ -29,6 +30,8 @@ import type { ActivityId } from "./components/ActivityBar";
 import { LibraryView } from "./components/LibraryView";
 import { CreateView } from "./components/CreateView";
 import { PartEditor } from "./components/PartEditor";
+import { BuildTab, NetsTab, PartsTab } from "./components/DesignTabs";
+import { SymbolPane } from "./components/SymbolCanvas";
 import { WelcomeView } from "./components/WelcomeView";
 import { SettingsModal } from "./components/SettingsModal";
 import type { Menu } from "./components/MenuBar";
@@ -114,9 +117,10 @@ function PropertiesTab() {
 }
 
 /**
- * One editor document. Hosts Monaco; when the inline schematic is enabled for
- * this file the editor is split along the center with a draggable divider and
- * the schematic pane on the right.
+ * One editor document. Hosts Monaco; when the inline drawing is enabled for this
+ * file the editor is split along the center with a draggable divider and the
+ * drawing on the right. A symbol file draws *its own* symbol; anything else
+ * draws the design schematic.
  */
 function EditorPane({ fileId }: { fileId?: string }) {
   const id = fileId ?? "";
@@ -124,8 +128,17 @@ function EditorPane({ fileId }: { fileId?: string }) {
   // The text itself lives in the shared editor store; a file opened from disk is
   // registered (and its content set) before this pane mounts.
   const file = { id, name: docName(id), content: "" };
-  /** text = VHDL only · schematic = drawing only · split = both side by side */
-  const mode: EditorViewMode = viewModes[id] ?? "text";
+  const path = docPath(id);
+  const isSymbol = path !== null && isSymbolFile(path);
+  /** text = source only · schematic = drawing only · split = both side by side */
+  const mode: EditorViewMode = viewModes[id] ?? (isSymbol ? "split" : "text");
+
+  /** The symbol program itself, or the generated design schematic. */
+  const drawingPane = isSymbol ? (
+    <SymbolPane path={path} name={file.name} />
+  ) : (
+    <SchematicView file={file} />
+  );
 
   const hostRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -152,25 +165,23 @@ function EditorPane({ fileId }: { fileId?: string }) {
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
-  // Schematic only: the drawing takes the whole tab.
+  // Drawing only: it takes the whole tab.
   if (mode === "schematic") {
     return (
       <div className="editor-pane">
-        <div className="editor-pane-schematic">
-          <SchematicView file={file} />
-        </div>
+        <div className="editor-pane-schematic">{drawingPane}</div>
       </div>
     );
   }
 
-  const showSchematic = mode === "split";
+  const showDrawing = mode === "split";
 
   return (
     <div className="editor-pane" ref={hostRef}>
-      <div className="editor-pane-main" style={{ width: showSchematic ? `${pct}%` : "100%" }}>
+      <div className="editor-pane-main" style={{ width: showDrawing ? `${pct}%` : "100%" }}>
         <CodeEditor file={file} onSave={isRealDoc(id) ? () => void saveFile(id) : undefined} />
       </div>
-      {showSchematic && (
+      {showDrawing && (
         <>
           <div
             className="editor-pane-divider"
@@ -179,9 +190,7 @@ function EditorPane({ fileId }: { fileId?: string }) {
             onPointerUp={onDividerUp}
             onPointerCancel={onDividerUp}
           />
-          <div className="editor-pane-schematic">
-            <SchematicView file={file} />
-          </div>
+          <div className="editor-pane-schematic">{drawingPane}</div>
         </>
       )}
     </div>
@@ -202,6 +211,12 @@ const factory = (node: TabNode) => {
       return <WelcomeView />;
     case "properties":
       return <PropertiesTab />;
+    case "parts":
+      return <PartsTab />;
+    case "nets":
+      return <NetsTab />;
+    case "build":
+      return <BuildTab />;
     default:
       return null;
   }
@@ -242,8 +257,17 @@ const DEFAULT_JSON: IJsonModel = {
       {
         type: "tabset",
         id: "properties-tabset",
-        weight: 18,
-        children: [{ id: "properties-tab", type: "tab", component: "properties", name: "Properties" }],
+        // Wide enough for the four tab labels (Properties / Parts / Nets / Build)
+        // and for the parts and net rows; `minWidth` keeps a dragged splitter
+        // from clipping the tab strip.
+        weight: 24,
+        minWidth: 250,
+        children: [
+          { id: "properties-tab", type: "tab", component: "properties", name: "Properties" },
+          { id: "parts-tab", type: "tab", component: "parts", name: "Parts" },
+          { id: "nets-tab", type: "tab", component: "nets", name: "Nets" },
+          { id: "build-tab", type: "tab", component: "build", name: "Build" },
+        ],
       },
     ],
   },
@@ -640,21 +664,31 @@ export default function App() {
     const hasLeftGroup = idx > 0;
     const hasRightGroup = idx >= 0 && idx < groups.length - 1;
 
+    // A symbol file's drawing half shows the symbol itself, not the design.
+    const groupPath = groupFileId ? docPath(groupFileId) : null;
+    const symbolDocument = groupPath !== null && isSymbolFile(groupPath);
+    const modeTitle = (mode: EditorViewMode) =>
+      symbolDocument
+        ? mode === "text"
+          ? "Symbol source only"
+          : mode === "split"
+            ? "Source and symbol side by side"
+            : "Symbol only"
+        : mode === "text"
+          ? "VHDL only"
+          : mode === "split"
+            ? "VHDL and schematic side by side"
+            : "Schematic only";
+
     renderValues.buttons.push(
       ...(isTextEditorTab
         ? (["text", "split", "schematic"] as const).map((mode) => (
             <button
               key={`view-${mode}`}
               className={`flexlayout__tab_toolbar_button editor-tool-button ${
-                (groupFileId ? viewModes[groupFileId] ?? "text" : "text") === mode ? "active" : ""
+                (groupFileId ? viewModes[groupFileId] ?? (symbolDocument ? "split" : "text") : "text") === mode ? "active" : ""
               }`}
-              title={
-                mode === "text"
-                  ? "VHDL only"
-                  : mode === "split"
-                    ? "VHDL and schematic side by side"
-                    : "Schematic only"
-              }
+              title={modeTitle(mode)}
               aria-label={`${mode} view`}
               disabled={!canAct}
               onClick={() => groupFileId && setViewMode(groupFileId, mode)}

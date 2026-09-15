@@ -14,6 +14,19 @@ import { loadSettings, subscribeSettings } from "../settings";
  * files back to disk). Font size / word wrap come from the Settings modal and
  * apply live to every open instance.
  */
+/**
+ * Monaco language id for a document: VHDL for design/component files, TypeScript
+ * for symbol programs (they *are* tscircuit programs), JSON, or plain text.
+ */
+function languageFor(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".vhd") || lower.endsWith(".vhdl")) return "vhdl";
+  if (lower.endsWith(".ts")) return "typescript";
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".md")) return "markdown";
+  return "plaintext";
+}
+
 export function CodeEditor({ file, onSave }: { file: VhdlFile; onSave?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -26,7 +39,7 @@ export function CodeEditor({ file, onSave }: { file: VhdlFile; onSave?: () => vo
     const settings = loadSettings();
     const editor = monaco.editor.create(host.current, {
       value: getEditorText(file.id, file.content),
-      language: "vhdl",
+      language: languageFor(file.name),
       theme: "vs-dark",
       automaticLayout: true,
       minimap: { enabled: false },

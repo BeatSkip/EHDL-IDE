@@ -76,9 +76,15 @@ a plain tscircuit body built from the elaborated pins.
 
 | Where | How |
 | --- | --- |
-| **Part editor → Symbol panel** | `generate-symbol.mjs` renders the linked symbol; the panel shows the SVG and redraws (debounced) while you edit the program, unsaved edits included |
+| **Symbol program open in the editor** | the drawing half of the tab shows *that symbol* (not the design schematic), following the source as you type; symbol files open in the split view by default. Drag to pan, wheel to zoom, double-click or **Fit** to frame the symbol again |
+| **Part editor → Symbol panel** | `generate-symbol.mjs` renders the linked symbol; the panel shows the SVG and redraws (debounced) while you edit the program, unsaved edits included. Pannable too — drag to move, Ctrl+wheel to zoom (plain wheel still scrolls the form) |
 | **Schematic pane** | `generate-schematic.mjs` runs each component's linked symbol inside the design's circuit, so the design draws the symbol the part is linked to |
 | **Build / dev** | the same design run, once, to ship `src/generated/` |
+
+The drawing is rendered on a 1200×600 sheet with the symbol in the middle, so the
+view fits the symbol's own extent (body, pins and labels) rather than the sheet —
+that is why a symbol opens framed instead of tiny. One transform scales the whole
+vector drawing, so it stays sharp at any zoom.
 
 Generated files land in `generated/` folders next to their sources
 (`<library>/symbols/generated/<name>/symbol.svg` and `source.ts` for the preview,

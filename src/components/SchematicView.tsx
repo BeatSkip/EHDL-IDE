@@ -2,17 +2,14 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { AppContext } from "../appContext";
 import { fileNameOf } from "../libraryFiles";
+import { findDesignFiles, generateDesign } from "../designGeneration";
 import {
-  findDesignFiles,
-  generateDesign,
-  loadGeneratedDesign,
-  outDirFor,
-} from "../designGeneration";
-import type { GeneratedDesign } from "../designGeneration";
-import { schematicSvg, schematicNetlist, schematicBom, schematicSource } from "../generated/schematic";
-import type { BomRow, Netlist } from "../elaborate";
-
-type SideTab = "parts" | "nets" | "log";
+  publishStatus,
+  setSelectedPart,
+  showProjectDesign,
+  useDesignView,
+  useSelectedPart,
+} from "../designStore";
 
 /** Viewport transform: translate then scale, origin at the top left. */
 interface ViewTransform {
@@ -21,27 +18,6 @@ interface ViewTransform {
   /** Zoom factor (1 = drawing at its natural size). */
   k: number;
 }
-
-interface ViewData {
-  svg: string;
-  netlist: Netlist;
-  bom: BomRow[];
-  design: string;
-  library: string;
-  generatedAt: string;
-  logs: string[];
-}
-
-/** The schematic generated at build time — shown until a project has been generated. */
-const BUNDLED: ViewData = {
-  svg: schematicSvg,
-  netlist: schematicNetlist as unknown as Netlist,
-  bom: schematicBom as unknown as BomRow[],
-  design: schematicSource.design,
-  library: schematicSource.library,
-  generatedAt: schematicSource.generatedAt,
-  logs: schematicSource.logs as unknown as string[],
-};
 
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 16;
@@ -86,17 +62,15 @@ export function SchematicView({ file }: { file?: { name: string } }) {
   const { project } = useContext(AppContext);
   const projectRoot = project.kind === "folder" ? project.rootPath : null;
 
-  const [generated, setGenerated] = useState<GeneratedDesign | null>(null);
   const [designs, setDesigns] = useState<string[]>([]);
   const [activeDesign, setActiveDesign] = useState("");
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  /** Set when the last run failed, so the toolbar can say so. */
+  const [failed, setFailed] = useState(false);
 
   const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, k: 1 });
-  const [selected, setSelected] = useState<string | null>(null);
   const [movedCount, setMovedCount] = useState(0);
   const [layoutEpoch, setLayoutEpoch] = useState(0);
-  const [sideTab, setSideTab] = useState<SideTab>("parts");
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -119,25 +93,22 @@ export function SchematicView({ file }: { file?: { name: string } }) {
     | null
   >(null);
 
-  const data: ViewData = generated ?? BUNDLED;
+  // The drawing is shared with the Parts tab: both read the published design, so
+  // a part clicked in the list is highlighted here and vice versa.
+  const data = useDesignView();
+  const selected = useSelectedPart();
 
   // --- loading -------------------------------------------------------------
 
   useEffect(() => {
-    if (!projectRoot) {
-      setDesigns([]);
-      setActiveDesign("");
-      setGenerated(null);
-      return;
-    }
     let cancelled = false;
     void (async () => {
-      const files = await findDesignFiles(projectRoot);
-      const lastRun = await loadGeneratedDesign(outDirFor(projectRoot));
+      const files = projectRoot ? await findDesignFiles(projectRoot) : [];
+      const found = await showProjectDesign(projectRoot);
       if (cancelled) return;
       setDesigns(files);
       setActiveDesign((current) => (current && files.includes(current) ? current : (files[0] ?? "")));
-      setGenerated(lastRun);
+      if (!found) publishStatus(null);
     })();
     return () => {
       cancelled = true;
@@ -147,23 +118,25 @@ export function SchematicView({ file }: { file?: { name: string } }) {
   const generate = async () => {
     if (!projectRoot || !activeDesign || busy) return;
     setBusy(true);
-    setStatus(`Generating from ${fileNameOf(activeDesign)}…`);
+    setFailed(false);
+    publishStatus(`Generating from ${fileNameOf(activeDesign)}…`);
     try {
       const outcome = await generateDesign(projectRoot, activeDesign);
-      setStatus(outcome.output.trim() || (outcome.ok ? "Done." : "The generator reported a problem."));
+      publishStatus(outcome.output.trim() || (outcome.ok ? "Done." : "The generator reported a problem."));
+      setFailed(!outcome.ok);
       if (outcome.ok) {
-        const loaded = await loadGeneratedDesign(outcome.outDir);
-        if (loaded) {
+        const found = await showProjectDesign(projectRoot);
+        if (found) {
           offsets.current.clear();
           setMovedCount(0);
           setLayoutEpoch((epoch) => epoch + 1);
-          setGenerated(loaded);
         } else {
-          setStatus(`${outcome.output}\nNo artifacts written to ${outcome.outDir}.`);
+          publishStatus(`${outcome.output}\nNo artifacts written to ${outcome.outDir}.`);
         }
       }
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err));
+      publishStatus(err instanceof Error ? err.message : String(err));
+      setFailed(true);
     } finally {
       setBusy(false);
     }
@@ -269,7 +242,7 @@ export function SchematicView({ file }: { file?: { name: string } }) {
 
     const hit = componentAt(e.clientX, e.clientY);
     if (hit) {
-      setSelected(hit.name);
+      setSelectedPart(hit.name);
       const offset = offsets.current.get(hit.name) ?? { dx: 0, dy: 0 };
       drag.current = {
         mode: "move",
@@ -283,7 +256,7 @@ export function SchematicView({ file }: { file?: { name: string } }) {
       return;
     }
 
-    setSelected(null);
+    setSelectedPart(null);
     drag.current = { mode: "pan", startX: e.clientX, startY: e.clientY, originX: view.x, originY: view.y };
   };
 
@@ -337,14 +310,12 @@ export function SchematicView({ file }: { file?: { name: string } }) {
     });
   }, [selected, data.svg, layoutEpoch, movedCount]);
 
-  const select = (name: string) => setSelected((current) => (current === name ? null : name));
-
   return (
     <div className="schematic-pane">
       <div className="schematic-toolbar">
         <span
           className="schematic-pane-label"
-          title={generated ? "generated from this project" : "bundled example"}
+          title={data.projectRoot ? "generated from this project" : "bundled example"}
         >
           Schematic — {file?.name ?? data.design} (tscircuit)
         </span>
@@ -374,6 +345,7 @@ export function SchematicView({ file }: { file?: { name: string } }) {
         >
           {busy ? "Generating…" : "Generate"}
         </button>
+        {failed && <span className="schematic-failed">Generate failed — see the Build tab</span>}
         <span className="schematic-spacer" />
         {selected && <span className="schematic-selection">{selected}</span>}
         <span className="schematic-zoom" title="Wheel to zoom · drag to pan · double-click to fit">
@@ -407,119 +379,6 @@ export function SchematicView({ file }: { file?: { name: string } }) {
             dangerouslySetInnerHTML={{ __html: data.svg }}
           />
         </div>
-
-        <aside className="schematic-side">
-          <div className="schematic-side-tabs" role="tablist" aria-label="Schematic details">
-            <button
-              className={`schematic-side-tab ${sideTab === "parts" ? "active" : ""}`}
-              role="tab"
-              aria-selected={sideTab === "parts"}
-              onClick={() => setSideTab("parts")}
-            >
-              Parts ({data.netlist.components.length})
-            </button>
-            <button
-              className={`schematic-side-tab ${sideTab === "nets" ? "active" : ""}`}
-              role="tab"
-              aria-selected={sideTab === "nets"}
-              onClick={() => setSideTab("nets")}
-            >
-              Nets ({data.netlist.nets.length})
-            </button>
-            <button
-              className={`schematic-side-tab ${sideTab === "log" ? "active" : ""}`}
-              role="tab"
-              aria-selected={sideTab === "log"}
-              onClick={() => setSideTab("log")}
-            >
-              Build
-            </button>
-          </div>
-
-          <div className="schematic-side-body">
-            {sideTab === "parts" && (
-              <>
-                <p className="schematic-hint">
-                  Click a part to select it, drag it to move it. Moves are kept for this session only.
-                </p>
-                <ul className="schematic-list">
-                  {data.netlist.components.map((component) => (
-                    <li key={component.refdes}>
-                      <button
-                        className={`schematic-row ${selected === component.refdes ? "active" : ""}`}
-                        onClick={() => select(component.refdes)}
-                      >
-                        <span className="schematic-row-name">{component.refdes}</span>
-                        <span className="schematic-row-sub">
-                          {component.entity} · {component.variant}
-                        </span>
-                        <span className="schematic-row-sub">
-                          {Object.entries(component.pins)
-                            .map(([port, pin]) => `${port}=${pin}`)
-                            .join(" ")}
-                        </span>
-                        {component.footprint && (
-                          <span className="schematic-row-mono">{component.footprint}</span>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-                <div className="schematic-side-title">BOM</div>
-                <ul className="schematic-list">
-                  {data.bom.map((row) => (
-                    <li key={`${row.entity}-${row.variant}`} className="schematic-bom-row">
-                      <span className="schematic-row-name">
-                        {row.qty}× {row.entity} {row.variant}
-                      </span>
-                      <span className="schematic-row-sub">
-                        {row.manufacturer} {row.part_number}
-                      </span>
-                      <span className="schematic-row-sub">{row.refdes}</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {sideTab === "nets" && (
-              <ul className="schematic-list">
-                {data.netlist.nets.map((net) => (
-                  <li key={net.name}>
-                    <button
-                      className={`schematic-row ${selected === net.name ? "active" : ""}`}
-                      onClick={() => select(net.name)}
-                    >
-                      <span className="schematic-row-name">{net.name}</span>
-                      <span className="schematic-row-sub">
-                        {net.connections
-                          .map(
-                            (connection) => `${connection.refdes}.${connection.pin} (${connection.port})`,
-                          )
-                          .join("  ·  ")}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {sideTab === "log" && (
-              <div className="schematic-log">
-                <div className="schematic-row-sub">design: {data.design}</div>
-                <div className="schematic-row-mono" title={data.library}>
-                  {data.library}
-                </div>
-                <div className="schematic-row-sub">generated: {data.generatedAt}</div>
-                <div className="schematic-row-sub">
-                  {generated ? `written to ${generated.outDir}` : "showing the bundled example"}
-                </div>
-                {status && <pre className="schematic-log-body">{status}</pre>}
-                <pre className="schematic-log-body">{data.logs.join("\n")}</pre>
-              </div>
-            )}
-          </div>
-        </aside>
       </div>
     </div>
   );

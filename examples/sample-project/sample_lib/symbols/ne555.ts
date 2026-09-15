@@ -14,10 +14,9 @@ const pinLabels = {
 } as const;
 
 // The body, and which pin sits on which side of it (top to bottom).
-const width = 1.25;
-const height = 1.75;
-const leftSide = ["GND", "TRIG", "RESET", "CTRL", "THRESH", "VCC"];
-const rightSide = ["OUT", "DISCH"];
+const leftSide = ["VCC", "DISCH", "THRESH", "CTRL"];
+const rightSide = ["TRIG", "OUT", "RESET", "GND"];
+
 
 /** `name` is the reference designator when the symbol is drawn in a design. */
 type SymbolOptions = { name?: string; schX?: number; schY?: number };
@@ -27,8 +26,6 @@ export default (circuit: Circuit, options: SymbolOptions = {}) => {
     new Chip({
       name: options.name ?? "NE555",
       pinLabels,
-      schWidth: width,
-      schHeight: height,
       schPinArrangement: { leftSide, rightSide },
       // No position on purpose: tscircuit lays the part out itself, which is what
       // a design needs. Pass schX/schY to pin it to a fixed spot.
