@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { createDir, generateSymbol, inTauri, joinPath, readFileText, writeFileText } from "../fs";
 import { docIdForPath } from "../documents";
 import { peekEditorText, subscribeEditorText } from "../editorState";
 import { SYMBOL_PREVIEW_SOURCE, SYMBOL_PREVIEW_SVG, symbolPreviewDir } from "../symbolFile";
-/** How long to wait after a keystroke in the symbol program before redrawing. */
-const REDRAW_DELAY_MS = 500;
+
+/**
+ * How long to wait after a keystroke in the symbol program before redrawing.
+ * Drawing means spawning Node with tscircuit, so this is deliberately long: the
+ * pause after typing is what triggers a run, not each character.
+ */
+const REDRAW_DELAY_MS = 700;
 
 export interface SymbolDrawing {
   svg: string | null;
@@ -16,86 +21,188 @@ export interface SymbolDrawing {
   redraw: () => void;
 }
 
+interface Drawing {
+  svg: string | null;
+  summary: string | null;
+  error: string | null;
+  busy: boolean;
+}
+
+const EMPTY: Drawing = { svg: null, summary: null, error: null, busy: false };
+
 /**
- * Draw a symbol program with the backend (`generate-symbol.mjs`).
+ * One renderer per symbol program, shared by every view that shows it — the
+ * editor pane and the Part editor's panel draw the same file, and this way that
+ * costs one Node run, not two.
  *
- * The source handed to the generator is the text in the editor when the program
- * is open — so an unsaved symbol draws too — and the file on disk otherwise.
- * Edits redraw after a short pause, which is what makes the symbol view follow
- * the source as you type.
+ * Runs are serialised: while one is in flight a newer source only replaces the
+ * pending one, so holding a key (or typing fast) cannot pile up Node processes
+ * and slow the editor down. A source that has already been drawn is not drawn
+ * again.
  */
-export function useSymbolDrawing(symbolPath: string | null): SymbolDrawing {
-  const [svg, setSvg] = useState<string | null>(null);
-  const [summary, setSummary] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  /** Guards against an older run overwriting a newer one. */
-  const runId = useRef(0);
+class SymbolRenderer {
+  private drawing: Drawing = { ...EMPTY };
+  /** Source of the last drawn (or failed) run. */
+  private rendered: string | null = null;
+  /** A newer source waiting for the run in flight to finish. */
+  private pending: string | null = null;
+  private running = false;
+  private listeners = new Set<() => void>();
 
-  const draw = useCallback(async () => {
-    if (!symbolPath || !inTauri) return;
-    const id = (runId.current += 1);
-    setBusy(true);
-    setError(null);
+  constructor(private readonly path: string) {}
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  /** Stable between updates, as `useSyncExternalStore` requires. */
+  snapshot = (): Drawing => this.drawing;
+
+  /** Draw `source`, unless it is already on screen or a run is in flight. */
+  request(source: string, force = false): void {
+    if (this.running) {
+      if (source !== this.rendered) this.pending = source;
+      return;
+    }
+    if (!force && source === this.rendered) return;
+    void this.run(source);
+  }
+
+  /** The source currently on screen (or null before the first run). */
+  get drawnSource(): string | null {
+    return this.rendered;
+  }
+
+  /** Show a problem without running the generator (e.g. the file is gone). */
+  report(error: string): void {
+    this.rendered = null;
+    this.update({ svg: null, summary: null, error, busy: false });
+  }
+
+  private update(drawing: Drawing): void {
+    this.drawing = drawing;
+    // A big SVG swap is not urgent: keep typing responsive by committing it as a
+    // low-priority update.
+    startTransition(() => {
+      for (const listener of this.listeners) listener();
+    });
+  }
+
+  private async run(source: string): Promise<void> {
+    this.running = true;
+    this.rendered = source;
+    this.update({ ...this.drawing, busy: true, error: null });
     try {
-      const outDir = symbolPreviewDir(symbolPath);
-      const fromEditor = peekEditorText(docIdForPath(symbolPath));
-      const source = fromEditor ?? (await readFileText(symbolPath));
-
+      const outDir = symbolPreviewDir(this.path);
       await createDir(outDir);
       const previewSource = joinPath(outDir, SYMBOL_PREVIEW_SOURCE);
       await writeFileText(previewSource, source);
 
       const result = await generateSymbol(previewSource, outDir);
-      if (id !== runId.current) return;
       if (!result.ok) {
-        setSvg(null);
-        setSummary(null);
-        setError(result.output.trim() || "The symbol generator failed.");
+        this.update({
+          svg: null,
+          summary: null,
+          error: result.output.trim() || "The symbol generator failed.",
+          busy: false,
+        });
+      } else {
+        const svg = await readFileText(joinPath(outDir, SYMBOL_PREVIEW_SVG));
+        this.update({
+          svg,
+          summary: result.output.split("\n").find((line) => line.startsWith("drew:"))?.trim() ?? null,
+          error: null,
+          busy: false,
+        });
+      }
+    } catch (err) {
+      this.update({
+        svg: null,
+        summary: null,
+        error: err instanceof Error ? err.message : String(err),
+        busy: false,
+      });
+    } finally {
+      this.running = false;
+      const next = this.pending;
+      this.pending = null;
+      if (next !== null && next !== this.rendered) void this.run(next);
+    }
+  }
+}
+
+const renderers = new Map<string, SymbolRenderer>();
+
+function rendererFor(path: string): SymbolRenderer {
+  let renderer = renderers.get(path);
+  if (!renderer) {
+    renderer = new SymbolRenderer(path);
+    renderers.set(path, renderer);
+  }
+  return renderer;
+}
+
+/**
+ * Draw a symbol program with the backend (`generate-symbol.mjs`).
+ *
+ * The source handed to the generator is the text in the editor when the program
+ * is open — so an unsaved symbol draws too — and the file on disk otherwise.
+ * Edits redraw after a pause, which is what makes the symbol view follow the
+ * source as you type without getting in the way of typing.
+ */
+export function useSymbolDrawing(symbolPath: string | null): SymbolDrawing {
+  const renderer = symbolPath ? rendererFor(symbolPath) : null;
+  const drawing = useSyncExternalStore(
+    renderer ? renderer.subscribe : noopSubscribe,
+    renderer ? renderer.snapshot : emptySnapshot,
+  );
+
+  /** Draws the program as it is right now (editor text, else the file). */
+  const requestDraw = useCallback(
+    async (force: boolean) => {
+      if (!symbolPath || !inTauri) return;
+      const target = rendererFor(symbolPath);
+      const fromEditor = peekEditorText(docIdForPath(symbolPath));
+      if (fromEditor !== undefined) {
+        target.request(fromEditor, force);
         return;
       }
+      try {
+        target.request(await readFileText(symbolPath), force);
+      } catch (err) {
+        // The file is not there (yet) — say so instead of drawing nothing.
+        target.report(
+          `Could not read ${symbolPath}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    },
+    [symbolPath],
+  );
 
-      const drawing = await readFileText(joinPath(outDir, SYMBOL_PREVIEW_SVG));
-      if (id !== runId.current) return;
-      setSvg(drawing);
-      setSummary(result.output.split("\n").find((line) => line.startsWith("drew:"))?.trim() ?? null);
-    } catch (err) {
-      if (id !== runId.current) return;
-      setSvg(null);
-      setSummary(null);
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      if (id === runId.current) setBusy(false);
-    }
-  }, [symbolPath]);
-
-  // Draw on mount and whenever a different symbol is opened.
-  useEffect(() => {
-    if (!symbolPath) {
-      setSvg(null);
-      setSummary(null);
-      setError(null);
-      return;
-    }
-    void draw();
-  }, [symbolPath, draw]);
-
-  // Redraw (debounced) while the symbol program is edited.
+  // Draw on mount / when a different symbol is opened, and follow the editor.
   useEffect(() => {
     if (!symbolPath) return;
-    let timer: number | undefined;
+    const timer = window.setTimeout(() => void requestDraw(false), 0);
+    let debounce: number | undefined;
     const unsubscribe = subscribeEditorText(docIdForPath(symbolPath), () => {
-      if (timer !== undefined) window.clearTimeout(timer);
-      timer = window.setTimeout(() => void draw(), REDRAW_DELAY_MS);
+      if (debounce !== undefined) window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => void requestDraw(false), REDRAW_DELAY_MS);
     });
     return () => {
-      if (timer !== undefined) window.clearTimeout(timer);
+      window.clearTimeout(timer);
+      if (debounce !== undefined) window.clearTimeout(debounce);
       unsubscribe();
     };
-  }, [symbolPath, draw]);
+  }, [symbolPath, requestDraw]);
 
-  return { svg, summary, error, busy, redraw: () => void draw() };
+  return { ...drawing, redraw: () => void requestDraw(true) };
 }
+
+const noopSubscribe = () => () => {};
+const emptySnapshot = () => EMPTY;
 
 // ---- panning and zooming ---------------------------------------------------
 

@@ -86,6 +86,14 @@ view fits the symbol's own extent (body, pins and labels) rather than the sheet 
 that is why a symbol opens framed instead of tiny. One transform scales the whole
 vector drawing, so it stays sharp at any zoom.
 
+Drawing costs a Node run, so the preview is careful about when it runs: a source
+that has already been drawn is not drawn again, a pause in typing (700 ms) is what
+triggers a run, and runs are serialised per symbol file — while one is in flight a
+newer source only replaces the pending one, so holding a key cannot pile up
+processes and slow the editor. Every view of the same program (the editor pane and
+the Part editor's panel) shares one renderer, so that costs one run, not two, and
+the resulting SVG is committed as a low-priority update to keep typing responsive.
+
 Generated files land in `generated/` folders next to their sources
 (`<library>/symbols/generated/<name>/symbol.svg` and `source.ts` for the preview,
 `<project>/generated/` for a design) and are ignored by git — they are always

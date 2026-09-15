@@ -285,7 +285,7 @@ export const schematicBom = [
 export const schematicSource = {
   "design": "board.vhd",
   "library": "C:\\Users\\Beatskip\\Documents\\AI testing\\EHDL IDE\\EHDL-IDE\\examples\\sample-project\\sample_lib\\components",
-  "generatedAt": "2026-09-15T16:13:04.916Z",
+  "generatedAt": "2026-09-15T16:21:17.657Z",
   "logs": [
     "parsed 7 component file(s) from C:\\Users\\Beatskip\\Documents\\AI testing\\EHDL IDE\\EHDL-IDE\\examples\\sample-project\\sample_lib\\components",
     "parsed design 'board' with 7 instance(s)",
