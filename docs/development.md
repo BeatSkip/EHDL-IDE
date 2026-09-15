@@ -24,7 +24,7 @@ without a global install.
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Start the Vite dev server (browser-only; sample project, no filesystem) |
+| `npm run dev` | Start the Vite dev server (browser-only, no filesystem; the IDE opens with nothing loaded) |
 | `npm run tauri dev` | Start Vite and open the native Tauri window |
 | `npm run build` | Regenerate the schematic, type-check (`tsc`) and bundle the frontend into `dist/` |
 | `npm run gen:schematic` | Run the build-time schematic generator only |

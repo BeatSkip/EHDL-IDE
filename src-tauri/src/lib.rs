@@ -239,6 +239,16 @@ fn generate_schematic(
     )
 }
 
+/// Draw a symbol file (`.smbl`) with tscircuit — the schematic half of the
+/// symbol editor re-runs this whenever the text changes.
+#[tauri::command]
+fn generate_symbol(symbol_file: String, out_dir: String) -> Result<GenerationResult, String> {
+    run_generator(
+        "generate-symbol.mjs",
+        &["--file".into(), symbol_file, "--out".into(), out_dir],
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -254,7 +264,8 @@ pub fn run() {
             copy_entry,
             open_in_file_manager,
             open_external,
-            generate_schematic
+            generate_schematic,
+            generate_symbol
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

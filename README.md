@@ -21,10 +21,15 @@ PCB. This repository is the native desktop application: a **Tauri 2** shell
   tokenizer; editor groups can be split left/right and documents moved between
   groups.
 - **File explorer** — opens a real folder through a native dialog and reads/
-  writes files on disk (Tauri commands). Falls back to a bundled sample project
-  in a plain browser.
+  writes files on disk (Tauri commands). Nothing is open at startup — no sample
+  project and no documents — so the IDE starts on the Welcome overview.
 - **Inline schematic pane** — a build-time-generated tscircuit schematic (the
   tscircuit/WebView2 runtime issue is sidestepped by rendering a static SVG).
+  Each part is drawn with the **symbol program its component links**, so the
+  schematic shows the symbol the part is designed with.
+- **Symbols** — a symbol is a [tscircuit](https://docs.tscircuit.com) program
+  (`symbols/<name>.ts`), linked from the component with a `SYMBOL` constant. The
+  Part editor draws it and follows edits live. See [docs/symbols.md](docs/symbols.md).
 - **Library manager** — register library folders (path + logical name). Each
   library's **components / symbols / footprints / board snippets / templates**
   are real
@@ -36,10 +41,11 @@ PCB. This repository is the native desktop application: a **Tauri 2** shell
 - **Create tab** — a dock tab next to *Library Manager*: build a part with a
   wizard (type, name, pins, review) or import an existing file into a library;
   AI generation is planned.
-- **Part editor** — component parts (`xxx.prt.ehd`) are **VHDL component files**
+- **Part editor** — component parts (`xxx.vhd`) are **VHDL component files**
   (package, entity, architecture) per [docs/vhdl-implementation.md](docs/vhdl-implementation.md),
   and open in their own editor: a graphical UI for ports, package variants with
-  pin maps and footprints, and metadata constants, or the VHDL source itself.
+  pin maps and footprints, metadata constants and the linked symbol's drawing, or
+  the VHDL source itself.
   The library can be checked as a whole for spec problems.
 - **Welcome overview** — with no document open, the editor area shows a
   VS Code-style overview: create a new project, open an existing folder, open a
@@ -68,7 +74,7 @@ npm run tauri dev      # native window (frontend served by Vite)
 ```
 
 ```bash
-npm run dev            # browser-only preview (sample project, no filesystem)
+npm run dev            # browser-only preview (no filesystem access; the IDE opens empty)
 npm run build          # type-check + bundle the frontend
 ```
 

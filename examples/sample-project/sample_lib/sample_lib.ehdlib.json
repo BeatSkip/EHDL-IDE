@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "name": "sample_lib",
+  "description": "Parts for the 555 astable blinker sample",
+  "notes": "Every part is a VHDL component file (.vhd) in the components folder.",
+  "subCategories": {},
+  "parts": {}
+}

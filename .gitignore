@@ -22,8 +22,21 @@ lerna-debug.log*
 # compiled VHDL helpers used by the schematic generator
 .tmp-schematic/
 
+# compiled symbol parser used by the symbol generator
+.tmp-symbol/
+
 # Playwright browser downloads (not used at runtime)
 .pw-browsers/
+
+# ---- Generated output — never committed ----
+# Everything under a `generated` folder is produced from the sources:
+#   src/generated/    schematic SVG, netlist, BOM and circuit JSON
+#                     (written by `npm run gen:schematic`, run by build and dev)
+#   <project>/generated/  the same artifacts for whichever project is open
+#                         (written by the schematic pane's Generate button)
+#   <library>/symbols/generated/  symbol previews from the symbol generator
+# Delete it at any time; the next build or generate recreates it.
+generated/
 
 # ---- Tauri / Rust ----
 src-tauri/target/

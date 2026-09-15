@@ -12,7 +12,7 @@
 import type { ComponentIssue } from "./vhdlPart";
 
 /** Extension of board files (and therefore of board snippets). */
-export const BOARD_EXT = ".brd.ehd";
+export const BOARD_EXT = ".bhd";
 
 export type BoardKind = "board" | "board-snippet";
 

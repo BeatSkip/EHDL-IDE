@@ -1,11 +1,12 @@
 /**
- * Plain-text library file model.
+ * Library file model.
  *
  * A library folder holds one folder per category (components, symbols,
  * footprints, board-snippets, templates). Inside a category folder there are
- * **part files** (plain text) and optional **sub-category folders**. The real
- * part format is still to be decided, so everything here is deliberately
- * simple text — see `buildPartContent`.
+ * **part files** and optional **sub-category folders**. Components are VHDL
+ * (`xxx.vhd`, see `vhdlPart.ts`), symbols are tscircuit programs (`xxx.ts`, see
+ * `symbolFile.ts`) and footprints are `.fpt` files (`ipcFootprint.ts`); the
+ * remaining categories are still plain text (`buildPartContent`).
  */
 
 import type { FsEntry } from "./fs";
@@ -15,32 +16,40 @@ import { FOOTPRINT_EXT } from "./ipcFootprint";
 /**
  * Extension used for the part files of each category.
  *
- * Components are `.prt.ehd` (Part editor), symbols `.sym.ehd`, footprints
- * `.fpt.ehd` (IPC footprint wizard); the remaining categories keep the plain
+ * Components and schematics are both VHDL (`.vhd`) — a component is a `.vhd`
+ * inside a library's `components` folder, a schematic is a design `.vhd`
+ * elsewhere; symbols are tscircuit programs in TypeScript (`.ts`) and footprints
+ * use `.fpt` (IPC footprint wizard). The remaining categories keep the plain
  * `.txt` placeholder until their formats are decided.
  */
 export const SECTION_EXT: Record<LibrarySectionId, string> = {
-  components: ".prt.ehd",
-  symbols: ".sym.ehd",
+  components: ".vhd",
+  symbols: ".ts",
   footprints: FOOTPRINT_EXT,
   "board-snippets": ".txt",
   templates: ".txt",
 };
 
-/** Extension of a component part file. */
-export const PART_EXT = ".prt.ehd";
+/** Extension of a component part file (VHDL, like schematics). */
+export const PART_EXT = ".vhd";
 
-/** True for component part files (`xxx.prt.ehd`) — opened in the Part editor. */
+/**
+ * True for component part files — a `.vhd` inside a library's `components`
+ * folder. Schematic designs are `.vhd` too, so the folder decides which editor
+ * a file opens in (the Part editor, or the text/schematic editor).
+ */
 export function isPartFile(path: string): boolean {
-  return path.toLowerCase().endsWith(PART_EXT);
+  const segments = path.toLowerCase().split(/[\\/]/);
+  const file = segments[segments.length - 1] ?? "";
+  return file.endsWith(PART_EXT) && segments.includes("components");
 }
 
 /**
  * Extensions the Library Manager hides: the category folder already says what
- * the file is, so `mosfet_n.prt.ehd` is listed as `mosfet_n`. Anything with an
- * unknown extension (an imported `.kicad_mod`, say) keeps it.
+ * the file is, so `ne555.vhd` is listed as `ne555`. Anything with an unknown
+ * extension (an imported `.kicad_mod`, say) keeps it.
  */
-const HIDDEN_EXTS = [PART_EXT, ".sym.ehd", FOOTPRINT_EXT, ".txt"];
+const HIDDEN_EXTS = [PART_EXT, ".ts", FOOTPRINT_EXT, ".txt"];
 
 /** The hidden extension of a file name, or "" when it has none. */
 export function hiddenExt(name: string): string {
@@ -55,6 +64,23 @@ export function hiddenExt(name: string): string {
 export function displayName(name: string): string {
   const ext = hiddenExt(name);
   return ext ? name.slice(0, name.length - ext.length) : name;
+}
+
+/**
+ * Folder holding generated artifacts (`schematic.svg`, a symbol's drawing, …).
+ * It is build output — reproducible from the sources and ignored by git — so the
+ * trees leave it out.
+ */
+export const GENERATED_DIR = "generated";
+
+/** True for a folder of generated artifacts. */
+export function isGeneratedName(name: string): boolean {
+  return name.toLowerCase() === GENERATED_DIR;
+}
+
+/** Directory entries without generated-artifact folders — never listed. */
+export function withoutGenerated(entries: FsEntry[]): FsEntry[] {
+  return entries.filter((entry) => !(entry.isDir && isGeneratedName(entry.name)));
 }
 
 /** Human labels for the category folders, in the order they are shown. */
@@ -90,9 +116,10 @@ export const PART_KIND: Record<LibrarySectionId, PartKind> = {
 };
 
 /** Extensions made of more than one dot-separated piece (checked first). */
-const COMPOUND_EXTS = [PART_EXT, ".sym.ehd"];
+/** Extensions made of more than one dot-separated piece (none at present). */
+const COMPOUND_EXTS: string[] = [];
 
-/** Split a file name into base and extension ("res.prt.ehd" → "res", ".prt.ehd"). */
+/** Split a file name into base and extension ("res.vhd" → "res", ".vhd"). */
 export function splitName(name: string): { base: string; ext: string } {
   const lower = name.toLowerCase();
   for (const ext of COMPOUND_EXTS) {
@@ -110,6 +137,12 @@ export function splitName(name: string): { base: string; ext: string } {
 export function fileNameOf(path: string): string {
   const index = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
   return index >= 0 ? path.slice(index + 1) : path;
+}
+
+/** Folder holding a path ("C:\\lib\\components\\a.txt" → "C:\\lib\\components"). */
+export function dirNameOf(path: string): string {
+  const index = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return index > 0 ? path.slice(0, index) : path;
 }
 
 /**

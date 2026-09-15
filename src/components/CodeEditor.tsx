@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as monaco from "monaco-editor";
 import "../monacoSetup"; // registers the worker + VHDL language
-import type { VhdlFile } from "../data";
+import type { VhdlFile } from "../documents";
 import { getEditorText, setEditorText } from "../editorState";
 import { registerEditor, unregisterEditor } from "../editors";
 import { loadSettings, subscribeSettings } from "../settings";

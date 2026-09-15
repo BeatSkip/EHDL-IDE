@@ -67,7 +67,7 @@ function Field({
  * IPC footprint wizard.
  *
  * Collects the package parameters, computes the IPC-7351 style land pattern
- * (`src/ipcFootprint.ts`), previews it and writes `<name>.fpt.ehd` into the
+ * (`src/ipcFootprint.ts`), previews it and writes `<name>.fpt` into the
  * library's footprints folder. The same pad list is what tscircuit turns into
  * the underlying footprint geometry (`npm run gen:footprint`, and the built-in
  * generator once the backend regeneration command exists).

@@ -9,7 +9,7 @@
 // footprint wizard:
 //   npm run gen:footprint                        # demo footprint (SOIC-8)
 //   npm run gen:footprint -- --params fp.json    # from JSON parameters
-//   npm run gen:footprint -- --file <fp.fpt.ehd> # rebuild from a footprint file
+//   npm run gen:footprint -- --file <fp.fpt> # rebuild from a footprint file
 //
 // Outputs (into --out, default src/generated): footprint.pcb.svg,
 // footprint.circuit.json, footprint.txt (a short summary for the app).

@@ -122,9 +122,7 @@ export function WelcomeView() {
           <div>
             <div className="welcome-title">EHDL — ECAD using HDL</div>
             <div className="welcome-sub">
-              {project.kind === "folder"
-                ? `Project: ${project.rootName}`
-                : "No folder open — the sample project is showing in the explorer"}
+              {project.kind === "folder" ? `Project: ${project.rootName}` : "No folder open"}
             </div>
           </div>
         </div>

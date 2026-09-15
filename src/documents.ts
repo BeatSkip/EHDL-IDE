@@ -1,10 +1,15 @@
-import { findFile } from "./data";
-
 /**
- * Documents registry. Sample files (from `data.ts`) are known statically; real
- * files opened from the file explorer are registered here under an id of the
- * form `fs:<absolute path>`.
+ * Documents registry. Every document is a file on disk: opening one registers
+ * it here under an id of the form `fs:<absolute path>`. There is no built-in
+ * sample document — the IDE starts with nothing open.
  */
+
+/** A document handed to an editor component (id, tab title, initial text). */
+export interface VhdlFile {
+  id: string;
+  name: string;
+  content: string;
+}
 
 export interface DocInfo {
   name: string;
@@ -21,23 +26,14 @@ export function registerRealDoc(id: string, info: DocInfo): void {
   realDocs.set(id, info);
 }
 
-/** Disk path of a real document, or null for sample documents. */
+/** Disk path of a document, or null when it does not come from disk. */
 export function docPath(id: string): string | null {
   return realDocs.get(id)?.path ?? null;
 }
 
 /** Display name of a document (tab title). */
 export function docName(id: string): string {
-  const info = realDocs.get(id);
-  if (info) return info.name;
-  return findFile(id).name;
-}
-
-/** Initial text used when mounting an editor whose store has no entry yet. */
-export function initialContent(id: string): string {
-  const info = realDocs.get(id);
-  if (info && info.path) return ""; // content is set before the editor mounts
-  return findFile(id).content;
+  return realDocs.get(id)?.name ?? id;
 }
 
 export function docIdForPath(path: string): string {

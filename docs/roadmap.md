@@ -69,14 +69,18 @@ board, and hand the result to a fab house.
 
 ## 3. Symbols and footprints — the visual layer
 
-13. **Symbol format + symbol editor** (`.sym.ehd`) — drawing primitives, pin
-    placement, pin names/numbers, body styles, units per package (op-amps,
-    gates); pins bound to entity port names, since port names are the join key.
+13. **Symbol format + symbol editor** — a symbol is a tscircuit program
+    (`xxx.ts`): drawing primitives, pin placement, pin names/numbers, body
+    styles, units per package (op-amps, gates); pins bound to entity port names,
+    since port names are the join key. The Part editor already draws the linked
+    symbol live (`docs/symbols.md`); what remains is a dedicated split
+    source/drawing editor for symbol files themselves.
 14. **Footprint format + footprint editor** — pads, drill, courtyard, silkscreen,
     reference/value text; manual editing plus generation from the IPC-7351 name
     already carried by `*_FP`.
 15. **Three-way linking** — component (ports, variants, pin map) ↔ symbol ↔
-    footprint, with a usage list per part ("where is this used").
+    footprint, with a usage list per part ("where is this used"). The component ↔
+    symbol half is done (the `SYMBOL` constant); footprint linking is not.
 16. **Snippet application** — put a board snippet on a board, enforcing the
     layer-stack rule (a 2-layer snippet fits a 4-layer board, never the reverse).
 

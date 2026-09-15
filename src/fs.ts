@@ -96,3 +96,11 @@ export async function generateSchematic(
 ): Promise<GenerationResult> {
   return invoke<GenerationResult>("generate_schematic", { libDir, topFile, outDir });
 }
+
+/** Draw a symbol file with tscircuit (the symbol editor's schematic half). */
+export async function generateSymbol(
+  symbolFile: string,
+  outDir: string,
+): Promise<GenerationResult> {
+  return invoke<GenerationResult>("generate_symbol", { symbolFile, outDir });
+}

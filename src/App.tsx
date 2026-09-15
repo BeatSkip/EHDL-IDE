@@ -13,13 +13,11 @@ import {
   TabNode,
   TabSetNode,
 } from "flexlayout-react";
-import { defaultFileId, projectTree } from "./data";
-import { baseName, docIdForPath, docName, docPath, initialContent, isRealDoc, registerRealDoc } from "./documents";
+import { baseName, docIdForPath, docName, docPath, isRealDoc, registerRealDoc } from "./documents";
 import { inTauri, openFolder, readFileText, writeFileText } from "./fs";
 import { isPartFile } from "./libraryFiles";
 import { getEditorText, setEditorText } from "./editorState";
 import { getEditor } from "./editors";
-import { ProjectTree } from "./components/ProjectTree";
 import { FileExplorer } from "./components/FileExplorer";
 import { CodeEditor } from "./components/CodeEditor";
 import { SchematicView } from "./components/SchematicView";
@@ -35,7 +33,7 @@ import { WelcomeView } from "./components/WelcomeView";
 import { SettingsModal } from "./components/SettingsModal";
 import type { Menu } from "./components/MenuBar";
 import { AppContext } from "./appContext";
-import type { AppState, ProjectState } from "./appContext";
+import type { AppState, EditorViewMode, ProjectState } from "./appContext";
 import { rememberRecentFile } from "./recentFiles";
 
 // ---- panel components ----
@@ -63,10 +61,36 @@ const countDocumentTabs = (m: Model): number => {
   return count;
 };
 
+/** Explorer with no folder open — the IDE starts clean, so it offers to open one. */
+function ExplorerEmpty() {
+  const { openFolderProject } = useContext(AppContext);
+  return (
+    <div className="panel project">
+      <div className="panel-title">Project Explorer</div>
+      <div className="panel-body">
+        <div className="explorer-empty">
+          <p className="explorer-empty-text">No folder open.</p>
+          <p className="explorer-empty-hint">
+            Open a folder to browse its VHDL sources, libraries, symbols and footprints.
+          </p>
+          <button
+            className="btn settings-primary-btn"
+            disabled={!inTauri}
+            title={inTauri ? "Open a project folder" : "Opening folders needs the desktop app"}
+            onClick={() => void openFolderProject()}
+          >
+            Open Folder…
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** The left dock: switches its content based on the activity bar.
  *  (Settings no longer lives here — it opens as a modal instead.) */
 function SidebarPanel() {
-  const { project, activeFileId, openFile, openFsPath, activity } = useContext(AppContext);
+  const { project, openFsPath, activity } = useContext(AppContext);
 
   if (activity === "library") return <LibraryView />;
 
@@ -79,7 +103,7 @@ function SidebarPanel() {
       />
     );
   }
-  return <ProjectTree nodes={projectTree} activeId={activeFileId} onSelect={openFile} />;
+  return <ExplorerEmpty />;
 }
 
 function PropertiesTab() {
@@ -95,10 +119,13 @@ function PropertiesTab() {
  * the schematic pane on the right.
  */
 function EditorPane({ fileId }: { fileId?: string }) {
-  const id = fileId ?? defaultFileId;
-  const { inlineSchematicFileId, saveFile } = useContext(AppContext);
-  const file = { id, name: docName(id), content: initialContent(id) };
-  const showSchematic = inlineSchematicFileId === id;
+  const id = fileId ?? "";
+  const { viewModes, saveFile } = useContext(AppContext);
+  // The text itself lives in the shared editor store; a file opened from disk is
+  // registered (and its content set) before this pane mounts.
+  const file = { id, name: docName(id), content: "" };
+  /** text = VHDL only · schematic = drawing only · split = both side by side */
+  const mode: EditorViewMode = viewModes[id] ?? "text";
 
   const hostRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -124,6 +151,19 @@ function EditorPane({ fileId }: { fileId?: string }) {
     dragging.current = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
+
+  // Schematic only: the drawing takes the whole tab.
+  if (mode === "schematic") {
+    return (
+      <div className="editor-pane">
+        <div className="editor-pane-schematic">
+          <SchematicView file={file} />
+        </div>
+      </div>
+    );
+  }
+
+  const showSchematic = mode === "split";
 
   return (
     <div className="editor-pane" ref={hostRef}>
@@ -193,20 +233,11 @@ const DEFAULT_JSON: IJsonModel = {
         type: "tabset",
         id: "editor-tabset",
         weight: 100,
-        // Keep the editor group alive when its last tab closes: the Welcome
-        // overview is added to it instead, so no group is created or destroyed
-        // and every panel keeps its exact width.
+        // Starts empty and stays alive (see enableDeleteWhenEmpty) so the Welcome
+        // overview occupies the editor area until a document is opened — no
+        // document is opened at startup.
         enableDeleteWhenEmpty: false,
-        children: [
-          {
-            id: "editor-top",
-            type: "tab",
-            component: "editor",
-            name: "top.vhd",
-            enableClose: true,
-            config: { fileId: "top" },
-          },
-        ],
+        children: [],
       },
       {
         type: "tabset",
@@ -226,6 +257,28 @@ function IconSchematicSplit() {
       <rect x="1.5" y="2.5" width="13" height="11" fill="none" stroke="currentColor" />
       <line x1="8" y1="2.5" x2="8" y2="13.5" stroke="currentColor" strokeDasharray="2 1.5" />
       <rect x="10" y="9" width="2.5" height="2.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** VHDL text only. */
+function IconTextOnly() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1" />
+      <path d="M5 6h6M5 8.5h6M5 11h3" />
+    </svg>
+  );
+}
+
+/** Schematic only. */
+function IconSchematicOnly() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="1.5" y="2.5" width="13" height="11" fill="none" stroke="currentColor" />
+      <path d="M4 10.5h2V6h3M10.5 6h2v4" fill="none" stroke="currentColor" />
+      <circle cx="4" cy="10.5" r="1" fill="currentColor" />
+      <circle cx="10.5" cy="6" r="1" fill="currentColor" />
     </svg>
   );
 }
@@ -265,9 +318,11 @@ function IconMoveRight() {
 }
 
 export default function App() {
-  const [activeFileId, setActiveFileId] = useState(defaultFileId);
-  const [inlineSchematicFileId, setInlineSchematicFileId] = useState<string | null>(null);
-  const [project, setProject] = useState<ProjectState>({ kind: "sample" });
+  // Nothing is open at startup: no folder, no sample project, no documents —
+  // the editor area shows the Welcome overview until something is opened.
+  const [activeFileId, setActiveFileId] = useState("");
+  const [viewModes, setViewModes] = useState<Record<string, EditorViewMode>>({});
+  const [project, setProject] = useState<ProjectState>({ kind: "none" });
   const [activity, setActivity] = useState<ActivityId>("explorer");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const model = useMemo(() => Model.fromJson(DEFAULT_JSON), []);
@@ -342,7 +397,7 @@ export default function App() {
   };
 
   /** Open (or focus) an already-registered document as a tab. Component part
-   *  files (`xxx.prt.ehd`) open in the Part editor, everything else in the
+   *  files (`xxx.vhd`) open in the Part editor, everything else in the
    *  text/schematic editor. */
   const openFile = (id: string) => {
     setActiveFileId(id);
@@ -472,9 +527,16 @@ export default function App() {
     }
   };
 
-  const toggleInlineSchematic = (fileId: string) => {
-    setInlineSchematicFileId((current) => (current === fileId ? null : fileId));
-  };
+  const setViewMode = (fileId: string, next: EditorViewMode) =>
+    setViewModes((current) => ({ ...current, [fileId]: next }));
+
+  /** Text → split → schematic → text (also the View menu item). */
+  const cycleViewMode = (fileId: string) =>
+    setViewModes((current) => {
+      const now = current[fileId] ?? "text";
+      const next: EditorViewMode = now === "text" ? "split" : now === "split" ? "schematic" : "text";
+      return { ...current, [fileId]: next };
+    });
 
   const appState: AppState = useMemo(
     () => ({
@@ -487,11 +549,12 @@ export default function App() {
       openFile,
       openFsPath,
       saveFile,
-      inlineSchematicFileId,
-      toggleInlineSchematic,
+      viewModes,
+      setViewMode,
+      cycleViewMode,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeFileId, project, activity, inlineSchematicFileId, openFile, openFsPath, saveFile, openFolderProject, openProjectFolder, toggleInlineSchematic],
+    [activeFileId, project, activity, viewModes, openFile, openFsPath, saveFile, openFolderProject, openProjectFolder],
   );
 
   // Keep active-file + active editor group in sync (tab clicks, splits...).
@@ -579,19 +642,27 @@ export default function App() {
 
     renderValues.buttons.push(
       ...(isTextEditorTab
-        ? [
+        ? (["text", "split", "schematic"] as const).map((mode) => (
             <button
-              key="inline-schematic"
-              className="flexlayout__tab_toolbar_button editor-tool-button"
-              title="Toggle schematic pane (split editor along the center)"
-              aria-label="Toggle schematic pane"
+              key={`view-${mode}`}
+              className={`flexlayout__tab_toolbar_button editor-tool-button ${
+                (groupFileId ? viewModes[groupFileId] ?? "text" : "text") === mode ? "active" : ""
+              }`}
+              title={
+                mode === "text"
+                  ? "VHDL only"
+                  : mode === "split"
+                    ? "VHDL and schematic side by side"
+                    : "Schematic only"
+              }
+              aria-label={`${mode} view`}
               disabled={!canAct}
-              onClick={() => groupFileId && toggleInlineSchematic(groupFileId)}
+              onClick={() => groupFileId && setViewMode(groupFileId, mode)}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <IconSchematicSplit />
-            </button>,
-          ]
+              {mode === "text" ? <IconTextOnly /> : mode === "split" ? <IconSchematicSplit /> : <IconSchematicOnly />}
+            </button>
+          ))
         : []),
       <button
         key="split-left"
@@ -643,6 +714,7 @@ export default function App() {
   // ---- menu bar ----
 
   const runEditorCommand = (command: string) => {
+    if (!activeFileId) return;
     getEditor(activeFileId)?.trigger("ehdl-menu", command, null);
   };
 
@@ -673,10 +745,13 @@ export default function App() {
         runEditorCommand("paste");
         break;
       case "view-schematic":
-        toggleInlineSchematic(activeFileId);
+        if (activeFileId) cycleViewMode(activeFileId);
         break;
     }
   };
+
+  /** Edit / View commands act on the active document, so they're dead without one. */
+  const noDocument = activeFileId === "";
 
   const menus: Menu[] = [
     {
@@ -693,18 +768,18 @@ export default function App() {
     {
       label: "Edit",
       items: [
-        { id: "edit-undo", label: "Undo", shortcut: "Ctrl+Z" },
-        { id: "edit-redo", label: "Redo", shortcut: "Ctrl+Y" },
+        { id: "edit-undo", label: "Undo", shortcut: "Ctrl+Z", disabled: noDocument },
+        { id: "edit-redo", label: "Redo", shortcut: "Ctrl+Y", disabled: noDocument },
         { id: "e-sep-1", label: "", separator: true },
-        { id: "edit-cut", label: "Cut", shortcut: "Ctrl+X" },
-        { id: "edit-copy", label: "Copy", shortcut: "Ctrl+C" },
-        { id: "edit-paste", label: "Paste", shortcut: "Ctrl+V" },
+        { id: "edit-cut", label: "Cut", shortcut: "Ctrl+X", disabled: noDocument },
+        { id: "edit-copy", label: "Copy", shortcut: "Ctrl+C", disabled: noDocument },
+        { id: "edit-paste", label: "Paste", shortcut: "Ctrl+V", disabled: noDocument },
       ],
     },
     {
       label: "View",
       items: [
-        { id: "view-schematic", label: "Toggle Schematic Pane" },
+        { id: "view-schematic", label: "Toggle Schematic Pane", disabled: noDocument },
         { id: "v-sep-1", label: "", separator: true },
         { id: "theme-dark", label: "Theme: Dark (VS Code)", disabled: true },
       ],
@@ -757,7 +832,7 @@ export default function App() {
           <span className="title">EHDL — ECAD using HDL</span>
         </div>
         <div className="titlebar-right">
-          <span className="titlebar-file">{docName(activeFileId)}</span>
+          <span className="titlebar-file">{activeFileId ? docName(activeFileId) : ""}</span>
           {inTauri && <WindowControls />}
         </div>
       </header>
@@ -779,10 +854,10 @@ export default function App() {
 
       <footer className="statusbar">
         <span className="status-item status-project">
-          {project.kind === "folder" ? project.rootName : "example_project"}
+          {project.kind === "folder" ? project.rootName : "No folder open"}
         </span>
         <span className="status-spacer" />
-        <span className="status-item">{docName(activeFileId)}</span>
+        <span className="status-item">{activeFileId ? docName(activeFileId) : "No file open"}</span>
         <span className="status-item">VHDL</span>
         <span className="status-item">Ready</span>
       </footer>

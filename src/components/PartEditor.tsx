@@ -3,8 +3,11 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { AppContext } from "../appContext";
 import { CodeEditor } from "./CodeEditor";
 import { getEditorText, setEditorText } from "../editorState";
-import { docName, docPath, initialContent } from "../documents";
-import { inTauri, readFileText, openExternal } from "../fs";
+import { docName, docPath } from "../documents";
+import { dirNameOf } from "../libraryFiles";
+import { resolveSymbolPath } from "../symbolFile";
+import { SymbolPreview } from "./SymbolPreview";
+import { inTauri, readFileText, openExternal, openFile } from "../fs";
 import { parseComponentVhdl, serializeComponent, packageNameFor, pinTypeNameFor } from "../vhdlPart";
 import type { ComponentIssue, ComponentModel, ComponentPort, PortDirection } from "../vhdlPart";
 
@@ -16,7 +19,7 @@ const DIRECTIONS: PortDirection[] = ["in", "out", "inout"];
 const isUrl = (value: string) => /^[a-z][a-z0-9+.-]*:\/\//i.test(value.trim());
 
 /**
- * Part editor — the document editor for component part files (`xxx.prt.ehd`).
+ * Part editor — the document editor for component part files (`xxx.vhd`).
  *
  * The file is a VHDL component (package + entity + architecture) exactly as
  * specified in `docs/vhdl-implementation.md`, so it is the single source of
@@ -25,9 +28,10 @@ const isUrl = (value: string) => /^[a-z][a-z0-9+.-]*:\/\//i.test(value.trim());
  * **VHDL** for the source itself. Saving writes canonical VHDL.
  */
 export function PartEditor({ fileId }: { fileId: string }) {
-  const { saveFile } = useContext(AppContext);
+  const { saveFile, openFsPath } = useContext(AppContext);
 
-  const text = () => getEditorText(fileId, initialContent(fileId));
+  // The part's VHDL lives in the shared editor store (set when the file was read).
+  const text = () => getEditorText(fileId, "");
   const path = docPath(fileId);
 
   const [mode, setMode] = useState<Mode>("graphical");
@@ -40,6 +44,43 @@ export function PartEditor({ fileId }: { fileId: string }) {
   const model = parsed.model;
   const errors = parsed.issues.filter((issue) => issue.severity === "error");
   const warnings = parsed.issues.filter((issue) => issue.severity === "warning");
+
+  /** `..`-style path from a folder to a file (absolute on another drive). */
+  function relativeTo(fromDir: string, target: string): string {
+    const sep = fromDir.includes("\\") ? "\\" : "/";
+    const from = fromDir.split(/[\\/]/);
+    const to = target.split(/[\\/]/);
+    if ((from[0] ?? "").toLowerCase() !== (to[0] ?? "").toLowerCase()) return target;
+    let common = 0;
+    while (common < from.length && common < to.length && from[common].toLowerCase() === to[common].toLowerCase()) {
+      common += 1;
+    }
+    return [...Array(from.length - common).fill(".."), ...to.slice(common)].join(sep);
+  }
+
+  /** The schematic symbol linked to this part (`SYMBOL` constant in the package). */
+  const symbolLink =
+    model.metadata.find((entry) => entry.key.toUpperCase() === "SYMBOL")?.value ?? "";
+
+  /** Where that link points, so the drawing and the generator agree. */
+  const symbolPath = path && symbolLink ? resolveSymbolPath(path, symbolLink) : null;
+
+  /**
+   * Link a schematic symbol to this part — stored as a `SYMBOL` string constant
+   * in the package, relative to the part file, so it survives on other machines
+   * and shows up in the VHDL view as well.
+   */
+  const setSymbolLink = (value: string) => {
+    const rest = model.metadata.filter((entry) => entry.key.toUpperCase() !== "SYMBOL");
+    applyModel({ ...model, metadata: value ? [...rest, { key: "SYMBOL", value }] : rest });
+  };
+
+  const linkSymbol = async () => {
+    const picked = await openFile();
+    if (!picked) return;
+    const partPath = docPath(fileId);
+    setSymbolLink(partPath ? relativeTo(dirNameOf(partPath), picked) : picked);
+  };
 
   /** Graphical edits go straight into the shared document text. */
   const applyModel = (next: ComponentModel) => {
@@ -287,6 +328,46 @@ export function PartEditor({ fileId }: { fileId: string }) {
 
             <section className="part-section">
               <div className="part-section-head">
+                <span className="part-section-title">Schematic symbol</span>
+                <button
+                  className="btn"
+                  title="Choose the symbol file drawn for this part"
+                  disabled={!inTauri}
+                  onClick={() => void linkSymbol()}
+                >
+                  {symbolLink ? "Change…" : "Link…"}
+                </button>
+                {symbolLink && (
+                  <button
+                    className="library-icon-btn"
+                    title="Unlink this symbol"
+                    aria-label="Unlink symbol"
+                    onClick={() => setSymbolLink("")}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" fill="none" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {symbolLink ? (
+                <>
+                  <div className="part-link-path" title={symbolLink}>
+                    {symbolLink}
+                  </div>
+                  <p className="part-sub">Drawn in the Symbol panel — it is the symbol designs use.</p>
+                </>
+              ) : (
+                <p className="part-empty">
+                  No symbol linked — pick a symbol program from the library's <code>symbols</code>{" "}
+                  folder. The link is written as a <code>SYMBOL</code> constant in this file, so the
+                  VHDL view shows it too.
+                </p>
+              )}
+            </section>
+
+            <section className="part-section">
+              <div className="part-section-head">
                 <span className="part-section-title">Package variants</span>
                 <button className="btn" onClick={addVariant}>
                   Add variant
@@ -453,6 +534,11 @@ export function PartEditor({ fileId }: { fileId: string }) {
           </div>
 
           <aside className="part-preview">
+            <SymbolPreview
+              symbolPath={symbolPath}
+              onOpen={symbolPath ? () => void openFsPath(symbolPath) : undefined}
+            />
+
             <div className="part-section-head">
               <span className="part-section-title">Check</span>
             </div>

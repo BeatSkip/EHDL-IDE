@@ -27,8 +27,10 @@ import {
   displayName,
   fileNameOf,
   hiddenExt,
+  isGeneratedName,
   splitName,
   uniqueFileName,
+  withoutGenerated,
 } from "../libraryFiles";
 import { LIBRARY_ICONS, DEFAULT_ICON_ID, LibraryIconGlyph } from "../libraryIcons";
 import {
@@ -39,7 +41,8 @@ import {
   emptyLibraryMeta,
 } from "../libraryMeta";
 import type { LibraryMeta, SubCategoryMeta } from "../libraryMeta";
-import { emptyComponent, serializeComponent } from "../vhdlPart";
+import { emptyComponent, parseComponentVhdl, serializeComponent } from "../vhdlPart";
+import { SYMBOL_EXT, symbolSourceFromComponent } from "../symbolFile";
 import { loadComponentDatabase } from "../componentLibrary";
 import type { LibraryIssue } from "../componentLibrary";
 import { PanelDialog } from "./PanelDialog";
@@ -513,7 +516,7 @@ export function LibraryView() {
           const existing = root.find((entry) => entry.isDir && entry.name === section.id);
           const sectionPath = existing?.path ?? joinPath(path, section.id);
           if (!existing) await createDir(sectionPath); // auto-create the category folder
-          map[section.id] = { path: sectionPath, entries: await listDir(sectionPath) };
+          map[section.id] = { path: sectionPath, entries: withoutGenerated(await listDir(sectionPath)) };
         }
         if (!cancelled) setLibraryData(map);
       } catch (err) {
@@ -550,9 +553,9 @@ export function LibraryView() {
         return;
       }
       if (cancelled) return;
-      setChildren((current) => ({ ...current, [path]: entries }));
+      setChildren((current) => ({ ...current, [path]: withoutGenerated(entries) }));
       for (const entry of entries) {
-        if (entry.isDir) await walk(entry.path, depth + 1);
+        if (entry.isDir && !isGeneratedName(entry.name)) await walk(entry.path, depth + 1);
       }
     };
     void (async () => {
@@ -566,7 +569,7 @@ export function LibraryView() {
   const loadChildren = async (path: string) => {
     try {
       const entries = await listDir(path);
-      setChildren((current) => ({ ...current, [path]: entries }));
+      setChildren((current) => ({ ...current, [path]: withoutGenerated(entries) }));
     } catch (err) {
       setNotice(err instanceof Error ? err.message : String(err));
     }
@@ -723,6 +726,34 @@ export function LibraryView() {
   };
 
   /** Create a new part file in a folder and start renaming it. */
+  /**
+   * Generate a symbol file for a component: the part's ports and pin numbers
+   * are imported straight from its VHDL, so the symbol is complete and only
+   * needs tuning.
+   */
+  const createSymbol = async (partPath: string, partName: string) => {
+    try {
+      const { model, issues } = parseComponentVhdl(await readFileText(partPath), partName);
+      const error = issues.find((issue) => issue.severity === "error");
+      if (error) {
+        setNotice(`Cannot build a symbol: ${error.message}`);
+        return;
+      }
+      if (!libPath) return;
+      const dir = joinPath(libPath, "symbols");
+      await createDir(dir);
+      const base = model.name || partName;
+      const file = uniqueFileName(base, SYMBOL_EXT, await listDir(dir));
+      const path = joinPath(dir, file);
+      // The symbol is a tscircuit program: ports and pins pre-filled, tune away.
+      await writeFileText(path, symbolSourceFromComponent(model, model.defaultVariant, base));
+      setRefresh((r) => r + 1);
+      void openFsPath(path);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const addPart = async (section: LibrarySectionId, folderPath: string) => {
     // Footprints are built by the IPC wizard rather than from a blank template.
     if (section === "footprints") {
@@ -1047,10 +1078,10 @@ export function LibraryView() {
   return (
     <div className="panel">
       <div className="panel-body library-panel-body">
-        {libraries.length === 0 ? (
+        {allLibraries.length === 0 ? (
           <p className="hint">
-            No libraries configured yet. Add the top folder of each HDL library under Settings →
-            Library.
+            No libraries yet. Open a project that carries one, or add the top folder of each HDL
+            library under Settings → Library.
           </p>
         ) : (
           <>
@@ -1430,6 +1461,20 @@ export function LibraryView() {
                 >
                   Open
                 </button>
+                {contextMenu.section === "components" && (
+                  <button
+                    className="library-menu-item"
+                    role="menuitem"
+                    title="Import this part's ports and pins into a new symbol file"
+                    onClick={() => {
+                      const { path, name } = contextMenu;
+                      setContextMenu(null);
+                      void createSymbol(path, splitName(name).base);
+                    }}
+                  >
+                    Create symbol
+                  </button>
+                )}
                 <div className="library-menu-sep" role="separator" />
                 <button
                   className="library-menu-item"

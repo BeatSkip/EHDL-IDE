@@ -573,7 +573,7 @@ export function generateFootprint(params: IpcParams): IpcFootprint {
 // ---------------------------------------------------------------------------
 
 /** Extension of footprint files. */
-export const FOOTPRINT_EXT = ".fpt.ehd";
+export const FOOTPRINT_EXT = ".fpt";
 
 export function serializeFootprint(footprint: IpcFootprint): string {
   const lines = [

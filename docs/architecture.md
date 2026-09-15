@@ -33,6 +33,7 @@ into the Rust commands (see `src/fs.ts` and `src-tauri/src/lib.rs`).
 | `settings.ts` | LocalStorage-backed stores: editor settings, library registry, service accounts (library contents are read from disk) |
 | `libraryMeta.ts` | Reads/writes the per-library manifest (`<library_name>.ehdlib.json`) |
 | `libraryFiles.ts` | Part file naming, per-category extensions and the plain-text part template |
+| `symbolFile.ts` | Symbol programs: the template written for a new symbol, link/path helpers and the preview location |
 | `vhdlPart.ts` | The VHDL component format: parser, canonical writer and checks |
 | `componentLibrary.ts` | Component database: walks a library and reports spec problems |
 | `libraryIcons.tsx` | Icon set available to sub-categories |
@@ -51,8 +52,9 @@ Settings → Library. Each library exposes five sections — **components**,
 inside the library folder (created automatically if missing). The items listed
 under each section are **plain-text part files** in that folder, read straight
 from disk; a component, symbol, footprint or snippet is a separate file type
-(they will be linked to one another later). Known part extensions
-(`.prt.ehd`, `.sym.ehd`, `.txt`) are hidden in the tree — the category folder
+(components link their symbol with a `SYMBOL` constant — see
+[symbols.md](symbols.md)). Known part extensions
+(`.vhd`, `.ts`, `.fpt`, `.txt`) are hidden in the tree — the category folder
 already states the type — and re-applied when the row is renamed; a file with
 any other extension keeps it. Categories can also hold **sub-category folders** (right-click a category *or*
 a sub-category → *New sub-category*), so sub-categories nest to any depth;
@@ -67,13 +69,14 @@ sub-category shows a warning when it still contains part files.
 
 Add / Rename / Copy / Paste / Duplicate / Delete act on the file system through
 the Rust commands (`rename_entry`, `copy_entry`, `delete_entry`); a new part is
-written with `write_file`. Components are `xxx.prt.ehd`, symbols `xxx.sym.ehd`;
-the other categories keep the `.txt` placeholder (`SECTION_EXT` in
+written with `write_file`. Components are `xxx.vhd`, symbols are tscircuit
+programs `xxx.ts`, and footprints are `xxx.fpt` (the IPC-7351 name is the file
+name); the remaining categories keep the `.txt` placeholder (`SECTION_EXT` in
 `libraryFiles.ts`) and their formats are still to be decided.
 
 ### Part editor
 
-Component parts are `xxx.prt.ehd` files (`isPartFile`); opening one — from the
+Component parts are `xxx.vhd` files (`isPartFile`); opening one — from the
 library tree *or* the Create tab — mounts the **Part editor** dock tab instead
 of the text/schematic editor (`openFile` picks the tab component from the path).
 
@@ -87,22 +90,24 @@ and writes the canonical form back.
 - **Graphical** — part name, ports (name + direction), package variants (name,
   IPC-7351 footprint and a pin number per port) and metadata constants such as
   `MFR`/`PARTNUM`; values that are URLs open in the browser (`open_external`),
-  paths are previewed. The right-hand **Check** panel lists the spec's errors
-  and warnings for the file, including the required wording of §10 Test 3.
+  paths are previewed. The **Schematic symbol** section links the part to a
+  symbol program and the right-hand **Symbol** panel draws it (tscircuit, run by
+  the backend — see [symbols.md](symbols.md)), following edits as you type. The
+  **Check** panel lists the spec's errors and warnings for the file, including
+  the required wording of §10 Test 3.
 - **VHDL** — the raw source in Monaco.
 
 Comments are kept (re-emitted at the top of the file) and the architecture body
 is preserved verbatim, so a graphical save doesn't throw hand-written text away.
-Symbol files (`.sym.ehd`) still open in the normal text editor — the symbol
-editor is not written yet.
+Symbol files (`xxx.ts`) open in the normal text editor as TypeScript.
 
 The library's components folder can be validated as a whole (the ✓ button in the
 library toolbar): `src/componentLibrary.ts` walks it recursively, parses every
 component and reports the problems from §5.3, including
 `Duplicate entity 'X' in files a and b`.
 
-The elaboration, netlist and BOM stages (Phases 3–5 of the spec) are not
-implemented yet.
+Elaboration, netlist and BOM are implemented in `src/elaborate.ts` and run by the
+design generator — see *Schematic pipeline* below.
 
 ### Create panel
 
@@ -136,3 +141,19 @@ an Add-menu of service types plus an add/edit dialog.
 `scripts/generate-schematic.mjs` → `src/generated/schematic.ts` → imported by
 `SchematicView.tsx`. tscircuit runs only in Node at build time; the app ships a
 static SVG string.
+
+The generator runs the whole chain in one pass: parse the library's components
+and the design (`vhdlPart.ts`, `vhdlDesign.ts`), elaborate them into a netlist,
+BOM and issues (`elaborate.ts`), then draw the circuit with tscircuit and render
+it with `circuit-to-svg`. Every instantiated part is drawn with the **symbol
+program its component links** ([symbols.md](symbols.md)); a part without a linked
+symbol is drawn from its ports alone. The variant's IPC-7351 footprint name is
+*not* handed to tscircuit — that string is a footprint name, and tscircuit would
+read its digits (e.g. the `762` of `DIP762W60P254L940H508Q8N`) as a pin count.
+Footprints belong to the board stage, which will build them from the library's
+`.fpt` files.
+
+The same programs are run on their own for the Part editor's symbol panel:
+`generate-symbol.mjs` renders one symbol file. Both scripts are spawned by the
+Rust commands `generate_schematic` and `generate_symbol` (`run_generator` in
+`src-tauri/src/lib.rs`), because the webview cannot run tscircuit.

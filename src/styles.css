@@ -483,14 +483,8 @@ body {
   background: #252526;
 }
 
-/* schematic pane content (inside the editor tab) */
-.schematic-pane {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 6px 8px;
-}
-
+/* schematic pane content (inside the editor tab) — the real rules live with the
+   schematic editor styles further down */
 .schematic-pane-label {
   flex: 0 0 auto;
   font-size: 11px;
@@ -504,18 +498,7 @@ body {
   text-overflow: ellipsis;
 }
 
-.schematic-viewer-host {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  background: #1e1e1e;
-  border: 1px solid #333333;
-  border-radius: 4px;
-}
-
-.schematic-viewer-host svg {
-  display: block;
-}
+/* (the viewer host is positioned and transformed by the schematic pane rules) */
 
 /* ---- editor tab-set toolbar buttons (VS Code style) ---- */
 .editor-tool-button {
@@ -525,6 +508,13 @@ body {
   padding: 2px;
   margin: 0 1px;
   color: var(--fg);
+}
+
+/* which of the three view modes (text / split / schematic) is active */
+.editor-tool-button.active {
+  color: var(--fg-bright);
+  background: rgba(0, 127, 212, 0.22);
+  border-radius: 3px;
 }
 
 .editor-tool-button:hover:not(:disabled) {
@@ -540,6 +530,28 @@ body {
 /* ---- Project explorer (VS Code sidebar feel) ---- */
 .project .panel-body {
   padding: 2px 0 0 0;
+}
+
+/* Explorer with no folder open (the IDE starts clean). */
+.explorer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+}
+
+.explorer-empty-text {
+  margin: 0;
+  color: var(--fg-bright);
+  font-size: 12px;
+}
+
+.explorer-empty-hint {
+  margin: 0 0 4px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .tree-list {
@@ -1818,7 +1830,16 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+  padding: 6px 8px;
   background: #1e1e1e;
+}
+
+.schematic-hint {
+  margin: 0 0 6px;
+  color: var(--fg-dim);
+  font-size: 10.5px;
+  line-height: 1.4;
 }
 
 .schematic-toolbar {
@@ -1856,25 +1877,37 @@ body {
 }
 
 .schematic-canvas {
+  position: relative;
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   cursor: grab;
   background: #ffffff;
+  border: 1px solid #333333;
+  border-radius: 4px;
+  /* the viewer handles pointer gestures itself */
+  touch-action: none;
 }
 
-.schematic-canvas:active {
+.schematic-canvas.grabbing {
   cursor: grabbing;
 }
 
+/* The viewport transform lives here. No `will-change`/layer promotion: a
+   promoted layer is rasterised once and then scaled, which is what made the
+   drawing blurry at anything but 100%. */
 .schematic-viewer-host {
+  position: absolute;
+  top: 0;
+  left: 0;
   transform-origin: 0 0;
-  will-change: transform;
 }
 
 .schematic-viewer-host svg {
   display: block;
   max-width: none;
+  max-height: none;
 }
 
 /* selection glow, applied to the matched SVG group */
@@ -2470,6 +2503,46 @@ body {
   margin: 0;
   color: var(--fg-dim);
   font-size: 10.5px;
+}
+
+/* ---- symbol drawing in the Part editor (tscircuit, rendered by the backend) ---- */
+.part-symbol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.part-symbol-canvas {
+  height: 220px;
+  overflow: hidden;
+  background: #f5f1ed; /* the schematic renderer's own background */
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.part-symbol-canvas svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.part-symbol-status {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.part-symbol-error {
+  max-height: 150px;
+  margin: 0;
+  overflow: auto;
+  color: #f48771;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .part-sub {

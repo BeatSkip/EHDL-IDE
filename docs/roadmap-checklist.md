@@ -52,14 +52,16 @@ work that remains.
 
 ## 3. Symbols and footprints
 
-- [ ] Symbol format + symbol editor (`.sym.ehd`): primitives, pins, pin
-      names/numbers, units per package
-- [x] (partial) `.sym.ehd` naming exists; symbol files open in the text editor
-      and can be created per library — no symbol drawing or editor yet
+- [x] (partial) Symbol format: a symbol **is** a tscircuit program (`xxx.ts`),
+      with pins/body from the component's ports and pin map (see `docs/symbols.md`)
+- [x] (partial) Symbol editor: the Part editor draws the linked symbol and follows
+      edits live — a dedicated symbol editor (split source/drawing tab) is not
+      written yet, and symbols are still edited in the normal text tab
 - [ ] Footprint format + footprint editor (pads, drill, courtyard, silkscreen)
-- [x] (partial) Footprint names come from `*_FP` and reach the netlist; the files
-      themselves are placeholders (`.txt` extension undecided)
-- [ ] Component ↔ symbol ↔ footprint linking, with "where is this used"
+- [x] (partial) Footprint names come from `*_FP` and reach the netlist; `.fpt`
+      files are written by the IPC wizard but are not drawn or used for boards yet
+- [x] (partial) Component ↔ symbol linking: the `SYMBOL` constant, honoured by the
+      schematic generator; footprint linking and "where is this used" are missing
 - [x] (partial) Board snippets can be created and the layer-stack rule is
       implemented as a helper (`canHostBoard`) — applying a snippet to a board is
       not possible yet
@@ -81,7 +83,7 @@ work that remains.
 
 ## 5. Board editor
 
-- [x] (partial) Board **files**: `.brd.ehd` with `layers`, `stack`, description;
+- [x] (partial) Board **files**: `.bhd` with `layers`, `stack`, description;
       created from the explorer with a layer-stack choice
 - [ ] Board editor: outline, layer stack editor, rules, placement via tscircuit
 - [ ] Import from the netlist: footprint instantiation, pad↔net binding,

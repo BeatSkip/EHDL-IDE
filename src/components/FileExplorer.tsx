@@ -14,7 +14,7 @@ import {
 import type { FsEntry } from "../fs";
 import { usePopupPosition } from "../popupPosition";
 import type { PopupAnchor } from "../popupPosition";
-import { SECTION_EXT, uniqueFileName } from "../libraryFiles";
+import { SECTION_EXT, isGeneratedName, uniqueFileName } from "../libraryFiles";
 import { loadLibraries, LIBRARY_SECTIONS } from "../settings";
 import { emptyLibraryMeta, libraryMetaPath, saveLibraryMeta } from "../libraryMeta";
 import {
@@ -129,6 +129,9 @@ async function isEmptyFolder(path: string, depth = 0): Promise<boolean> {
   try {
     const entries = await listDir(path);
     for (const child of entries) {
+      // Generated artifacts don't count as content: a folder holding only
+      // `generated/` is still empty as far as the tree is concerned.
+      if (child.isDir && isGeneratedName(child.name)) continue;
       if (!child.isDir) {
         empty = false;
         break;
@@ -151,12 +154,13 @@ async function isEmptyFolder(path: string, depth = 0): Promise<boolean> {
   return empty;
 }
 
-/** A folder's entries without the manifest and without empty subfolders. */
+/** A folder's entries without manifests, generated output or empty subfolders. */
 async function visibleChildren(path: string): Promise<FsEntry[]> {
   const entries = await listDir(path);
   const visible: FsEntry[] = [];
   for (const child of entries) {
     if (!child.isDir && MANIFEST.test(child.name)) continue;
+    if (child.isDir && isGeneratedName(child.name)) continue; // build output
     if (child.isDir && (await isEmptyFolder(child.path))) continue;
     visible.push(child);
   }
@@ -858,7 +862,7 @@ export function FileExplorer({
       )}
 
       {/* IPC footprint wizard — computes the land pattern, previews it and
-          writes <name>.fpt.ehd into the library's footprints folder. */}
+          writes <name>.fpt into the library's footprints folder. */}
       {wizardLibrary && (
         <FootprintWizard
           libraryPath={wizardLibrary}

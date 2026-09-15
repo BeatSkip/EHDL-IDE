@@ -1,4 +1,4 @@
-﻿@charset "UTF-8";
+@charset "UTF-8";
 .flexlayout__layout {
   --color-text: var(--flexlayout-color-text, #eeeeee);
   --color-background: var(--flexlayout-color-background, black);
@@ -373,7 +373,7 @@
   text-overflow: ellipsis;
 }
 .flexlayout__group_pill_name::before {
-  content: "â€‹";
+  content: "​";
 }
 .flexlayout__group_pill_count {
   opacity: 0.7;
@@ -391,7 +391,7 @@
   box-sizing: border-box;
 }
 .flexlayout__group_end_marker::before {
-  content: "â€‹";
+  content: "​";
 }
 .flexlayout__tab_button_grouped_underline {
   position: relative;

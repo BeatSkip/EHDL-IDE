@@ -38,7 +38,7 @@ export interface ComponentDatabase {
 /** Depth limit so a deep or symlinked tree can't run away. */
 const MAX_DEPTH = 8;
 
-/** Every `*.prt.ehd` file under `dir`, recursively. */
+/** Every `*.vhd` file under `dir`, recursively. */
 async function collectComponentFiles(dir: string, depth = 0): Promise<string[]> {
   if (depth > MAX_DEPTH) return [];
   let entries;

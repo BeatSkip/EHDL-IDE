@@ -1,4 +1,4 @@
-import type { VhdlFile } from "../data";
+import type { VhdlFile } from "../documents";
 
 /** Placeholder properties panel. */
 export function PropertiesPanel({ file }: { file: VhdlFile }) {
